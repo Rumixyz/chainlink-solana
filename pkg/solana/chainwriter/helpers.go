@@ -81,6 +81,45 @@ func errorWithDebugID(err error, debugID string) error {
 	return fmt.Errorf("Debug ID: %s: Error: %s", debugID, err)
 }
 
+func GetDebugIDAtLocation(decoded any, location string) (string, error) {
+	debugIDList, err := GetValueAtLocation(decoded, location)
+	if err != nil {
+		return "", err
+	}
+
+	// there should only be one debug ID, others will be ignored.
+	debugID := string(debugIDList[0])
+
+	return debugID, nil
+}
+
+func GetValueAtLocation(decoded any, location string) ([][]byte, error) {
+	path := strings.Split(location, ".")
+
+	valueList, err := traversePath(decoded, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var values [][]byte
+	for _, value := range valueList {
+		if byteArray, ok := value.([]byte); ok {
+			values = append(values, byteArray)
+		} else {
+			return nil, fmt.Errorf("invalid value format at path: %s", location)
+		}
+	}
+
+	return values, nil
+}
+
+func errorWithDebugID(err error, debugID string) error {
+	if debugID == "" {
+		return err
+	}
+	return fmt.Errorf("Debug ID: %s: Error: %s", debugID, err)
+}
+
 // traversePath recursively traverses the given structure based on the provided path.
 func traversePath(data any, path []string) ([]any, error) {
 	if len(path) == 0 {

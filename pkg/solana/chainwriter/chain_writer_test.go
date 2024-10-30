@@ -305,6 +305,7 @@ func TestChainWriter_FilterLookupTableAddresses(t *testing.T) {
 						Location: "LookupTable",
 					},
 				},
+				IDL: "ccip-router",
 			},
 		},
 		StaticLookupTables: []solana.PublicKey{staticLookupTablePubkey1, staticLookupTablePubkey2},

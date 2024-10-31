@@ -13,7 +13,7 @@ pub mod log_read_test {
             str_val: "Hello, World!".to_string(),
             u64_value: value,
         });
-        
+
         Ok(())
     }
 }

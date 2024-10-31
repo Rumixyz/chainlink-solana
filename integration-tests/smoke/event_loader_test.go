@@ -31,11 +31,6 @@ import (
 	"github.com/smartcontractkit/chainlink-solana/integration-tests/utils"
 )
 
-type testConfig struct {
-	PrivateKey string
-	PublicKey  string
-}
-
 const programPubKey = "J1zQwrBNBngz26jRPNWsUSZMHJwBwpkoDitXRV95LdK4"
 
 func TestEventLoader(t *testing.T) {
@@ -56,6 +51,7 @@ func TestEventLoader(t *testing.T) {
 	rpcURL, wsURL := setupTestValidator(t, privateKey.PublicKey().String())
 	rpcClient := rpc.New(rpcURL)
 	wsClient, err := ws.Connect(ctx, wsURL)
+	require.NoError(t, err)
 
 	defer wsClient.Close()
 

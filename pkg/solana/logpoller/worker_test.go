@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller"
 )
 
@@ -21,7 +22,7 @@ func TestWorkerGroup(t *testing.T) {
 	ctx := tests.Context(t)
 	group := logpoller.NewWorkerGroup(5, logger.Nop())
 
-	group.Start(ctx)
+	require.NoError(t, group.Start(ctx))
 	t.Cleanup(func() {
 		require.NoError(t, group.Close())
 	})
@@ -49,7 +50,7 @@ func TestWorkerGroup_Retry(t *testing.T) {
 	ctx := tests.Context(t)
 	group := logpoller.NewWorkerGroup(5, logger.Nop())
 
-	group.Start(ctx)
+	require.NoError(t, group.Start(ctx))
 	t.Cleanup(func() {
 		require.NoError(t, group.Close())
 	})
@@ -103,7 +104,7 @@ func TestWorkerGroup_Close(t *testing.T) {
 	ctx := tests.Context(t)
 	group := logpoller.NewWorkerGroup(5, logger.Nop())
 
-	group.Start(ctx)
+	require.NoError(t, group.Start(ctx))
 
 	output := make([]int, 10)
 
@@ -147,12 +148,12 @@ func TestWorkerGroup_DoContext(t *testing.T) {
 		require.NoError(t, group.Start(ctx))
 
 		t.Run("if input context cancelled", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
+			ctxB, cancel := context.WithCancel(ctx)
 
 			// calling cancel before calling Do should result in an error
 			cancel()
 
-			require.ErrorIs(t, group.Do(ctx, job), logpoller.ErrContextCancelled)
+			require.ErrorIs(t, group.Do(ctxB, job), logpoller.ErrContextCancelled)
 		})
 
 		t.Run("if queue closed", func(t *testing.T) {

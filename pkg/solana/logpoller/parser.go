@@ -173,7 +173,7 @@ func parse(logs []string) []ProgramOutput {
 				if len(matches) == 3 {
 					if depth == 1 {
 						if val, err := strconv.Atoi(matches[1]); err == nil {
-							instLogs[len(instLogs)-1].ComputeUnits = uint(val)
+							instLogs[len(instLogs)-1].ComputeUnits = uint(val) //nolint:gosec
 						}
 					}
 

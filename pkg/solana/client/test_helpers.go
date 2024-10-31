@@ -33,7 +33,7 @@ func SetupLocalSolNodeWithFlags(t *testing.T, flags ...string) (string, string) 
 
 	faucetPort := utils.MustRandomPort(t)
 	url := "http://127.0.0.1:" + port
-	wsUrl := "ws://127.0.0.1:" + strconv.Itoa(portInt+1)
+	wsURL := "ws://127.0.0.1:" + strconv.Itoa(portInt+1)
 
 	args := append([]string{
 		"--reset",
@@ -76,7 +76,7 @@ func SetupLocalSolNodeWithFlags(t *testing.T, flags ...string) (string, string) 
 	}
 	require.True(t, ready)
 
-	return url, wsUrl
+	return url, wsURL
 }
 
 func FundTestAccounts(t *testing.T, keys []solana.PublicKey, url string) {

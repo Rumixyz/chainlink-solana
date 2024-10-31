@@ -3,7 +3,35 @@ mockname: "{{ .InterfaceName }}"
 outpkg: mocks
 filename: "{{ .InterfaceName | snakecase }}.go"
 packages:
+  github.com/smartcontractkit/chainlink-solana/pkg/monitoring:
+    interfaces:
+      ChainReader:
+  github.com/smartcontractkit/chainlink-solana/pkg/monitoring/metrics:
+    interfaces:
+      FeedBalances:
+      Fees:
+      NetworkFees:
+      NodeBalances:
+      NodeSuccess:
+      ReportObservations:
+      SlotHeight:
+  github.com/smartcontractkit/chainlink-solana/pkg/solana/client:
+    interfaces:
+      ReaderWriter:
+  github.com/smartcontractkit/chainlink-solana/pkg/solana/config:
+    interfaces:
+      Config:
+        filename: config.go
+        case: underscore
   github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller:
     interfaces:
       RPCClient:
       Parser:
+  github.com/smartcontractkit/chainlink-solana/pkg/solana/fees:
+    interfaces:
+      Estimator:
+  github.com/smartcontractkit/chainlink-solana/pkg/solana/txm:
+    interfaces:
+      SimpleKeystore:
+        filename: simple_keystore.go
+        case: underscore

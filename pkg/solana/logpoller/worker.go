@@ -188,9 +188,9 @@ func (g *WorkerGroup) runRetryQueue(ctx context.Context) {
 		case job := <-g.chRetry:
 			var retry retryableJob
 
-			switch job.(type) {
+			switch typedJob := job.(type) {
 			case retryableJob:
-				retry = job.(retryableJob)
+				retry = typedJob
 				retry.count++
 
 				if retry.count > g.maxRetryCount {

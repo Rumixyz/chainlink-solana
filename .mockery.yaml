@@ -1,0 +1,9 @@
+dir: "{{ .InterfaceDir }}/mocks"
+mockname: "{{ .InterfaceName }}"
+outpkg: mocks
+filename: "{{ .InterfaceName | snakecase }}.go"
+packages:
+  github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller:
+    interfaces:
+      RPCClient:
+      Parser:

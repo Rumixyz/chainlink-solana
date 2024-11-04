@@ -309,6 +309,7 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		solana.TransactionPayer(feePayer),
 		solana.TransactionAddressTables(filteredLookupTableMap),
 	)
+
 	if err != nil {
 		return errorWithDebugID(fmt.Errorf("error constructing transaction: %w", err), debugID)
 	}

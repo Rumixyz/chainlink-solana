@@ -42,7 +42,7 @@ type eventDetail struct {
 // processEventJob is a job that processes a single event. The parser should be a pure function
 // such that no network requests are made and no side effects are produced.
 type processEventJob struct {
-	parser Parser
+	parser ProgramEventProcessor
 	event  ProgramEvent
 }
 
@@ -51,7 +51,7 @@ func (j *processEventJob) String() string {
 }
 
 func (j *processEventJob) Run(_ context.Context) error {
-	return j.parser.ProcessEvent(j.event)
+	return j.parser.Process(j.event)
 }
 
 // getTransactionsFromBlockJob is a job that fetches transaction signatures from a block and loads
@@ -59,7 +59,7 @@ func (j *processEventJob) Run(_ context.Context) error {
 type getTransactionsFromBlockJob struct {
 	slotNumber uint64
 	client     RPCClient
-	parser     Parser
+	parser     ProgramEventProcessor
 	chJobs     chan Job
 }
 
@@ -105,8 +105,11 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 	}
 
 	detail := eventDetail{
-		blockNumber: *block.BlockHeight,
-		blockHash:   block.Blockhash,
+		blockHash: block.Blockhash,
+	}
+
+	if block.BlockHeight != nil {
+		detail.blockNumber = *block.BlockHeight
 	}
 
 	for idx, trx := range block.Transactions {
@@ -121,9 +124,9 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 	return nil
 }
 
-func messagesToEvents(messages []string, parser Parser, detail eventDetail, chJobs chan Job) {
+func messagesToEvents(messages []string, parser ProgramEventProcessor, detail eventDetail, chJobs chan Job) {
 	var logIdx uint
-	for _, outputs := range parse(messages) {
+	for _, outputs := range parseProgramLogs(messages) {
 		for _, event := range outputs.Events {
 			logIdx++
 

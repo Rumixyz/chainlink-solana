@@ -265,66 +265,6 @@ func (_c *RPCClient_GetSignaturesForAddressWithOpts_Call) RunAndReturn(run func(
 	return _c
 }
 
-// GetTransaction provides a mock function with given fields: _a0, _a1, _a2
-func (_m *RPCClient) GetTransaction(_a0 context.Context, _a1 solana.Signature, _a2 *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error) {
-	ret := _m.Called(_a0, _a1, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetTransaction")
-	}
-
-	var r0 *rpc.GetTransactionResult
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)); ok {
-		return rf(_a0, _a1, _a2)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) *rpc.GetTransactionResult); ok {
-		r0 = rf(_a0, _a1, _a2)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*rpc.GetTransactionResult)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) error); ok {
-		r1 = rf(_a0, _a1, _a2)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// RPCClient_GetTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTransaction'
-type RPCClient_GetTransaction_Call struct {
-	*mock.Call
-}
-
-// GetTransaction is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 solana.Signature
-//   - _a2 *rpc.GetTransactionOpts
-func (_e *RPCClient_Expecter) GetTransaction(_a0 interface{}, _a1 interface{}, _a2 interface{}) *RPCClient_GetTransaction_Call {
-	return &RPCClient_GetTransaction_Call{Call: _e.mock.On("GetTransaction", _a0, _a1, _a2)}
-}
-
-func (_c *RPCClient_GetTransaction_Call) Run(run func(_a0 context.Context, _a1 solana.Signature, _a2 *rpc.GetTransactionOpts)) *RPCClient_GetTransaction_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(solana.Signature), args[2].(*rpc.GetTransactionOpts))
-	})
-	return _c
-}
-
-func (_c *RPCClient_GetTransaction_Call) Return(_a0 *rpc.GetTransactionResult, _a1 error) *RPCClient_GetTransaction_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *RPCClient_GetTransaction_Call) RunAndReturn(run func(context.Context, solana.Signature, *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)) *RPCClient_GetTransaction_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewRPCClient creates a new instance of RPCClient. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewRPCClient(t interface {

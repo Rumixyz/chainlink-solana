@@ -66,7 +66,7 @@ Program data: HDQnaQjSWwkNAAAASGVsbG8sIFdvcmxkISoAAAAAAAAA // base64 encoded; bo
 Program J1zQwrBNBngz26jRPNWsUSZMHJwBwpkoDitXRV95LdK4 consumed 1477 of 200000 compute units
 Program J1zQwrBNBngz26jRPNWsUSZMHJwBwpkoDitXRV95LdK4 success
 */
-func parse(logs []string) []ProgramOutput {
+func parseProgramLogs(logs []string) []ProgramOutput {
 	var depth int
 
 	instLogs := []ProgramOutput{}

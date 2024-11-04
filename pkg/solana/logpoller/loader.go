@@ -14,13 +14,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-type Parser interface {
-	// ProcessEvent should take a ProgramEvent and parse it based on log signature
+type ProgramEventProcessor interface {
+	// Process should take a ProgramEvent and parseProgramLogs it based on log signature
 	// and expected encoding. Only return errors that cannot be handled and
 	// should exit further transaction processing on the running thread.
 	//
-	// ProcessEvent should be thread safe.
-	ProcessEvent(ProgramEvent) error
+	// Process should be thread safe.
+	Process(ProgramEvent) error
 }
 
 type RPCClient interface {
@@ -28,7 +28,6 @@ type RPCClient interface {
 	GetBlocks(ctx context.Context, startSlot uint64, endSlot *uint64, commitment rpc.CommitmentType) (out rpc.BlocksResult, err error)
 	GetBlockWithOpts(context.Context, uint64, *rpc.GetBlockOpts) (*rpc.GetBlockResult, error)
 	GetSignaturesForAddressWithOpts(context.Context, solana.PublicKey, *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error)
-	GetTransaction(context.Context, solana.Signature, *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)
 }
 
 const (
@@ -42,7 +41,7 @@ type EncodedLogCollector struct {
 
 	// dependencies and configuration
 	client       RPCClient
-	parser       Parser
+	parser       ProgramEventProcessor
 	lggr         logger.Logger
 	rpcTimeLimit time.Duration
 
@@ -61,7 +60,7 @@ type EncodedLogCollector struct {
 
 func NewEncodedLogCollector(
 	client RPCClient,
-	parser Parser,
+	parser ProgramEventProcessor,
 	lggr logger.Logger,
 ) *EncodedLogCollector {
 	c := &EncodedLogCollector{

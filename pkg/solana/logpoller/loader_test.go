@@ -33,7 +33,7 @@ var (
 
 func TestEncodedLogCollector_StartClose(t *testing.T) {
 	client := new(mocks.RPCClient)
-	parser := new(mocks.Parser)
+	parser := new(mocks.ProgramEventProcessor)
 	ctx := tests.Context(t)
 
 	collector := logpoller.NewEncodedLogCollector(client, parser, logger.Nop())
@@ -273,7 +273,7 @@ type testParser struct {
 	count  atomic.Uint64
 }
 
-func (p *testParser) ProcessEvent(event logpoller.ProgramEvent) error {
+func (p *testParser) Process(event logpoller.ProgramEvent) error {
 	p.called.Store(true)
 	p.count.Store(p.count.Load() + 1)
 

@@ -143,7 +143,7 @@ type printParser struct {
 	values []uint64
 }
 
-func (p *printParser) ProcessEvent(evt logpoller.ProgramEvent) error {
+func (p *printParser) Process(evt logpoller.ProgramEvent) error {
 	p.t.Helper()
 
 	data, err := base64.StdEncoding.DecodeString(evt.Data)

@@ -10,6 +10,8 @@ packages:
     interfaces:
       FeedBalances:
       Fees:
+        config:
+          filename: "Fees.go"
       NetworkFees:
       NodeBalances:
       NodeSuccess:
@@ -21,17 +23,21 @@ packages:
   github.com/smartcontractkit/chainlink-solana/pkg/solana/config:
     interfaces:
       Config:
-        filename: config.go
-        case: underscore
+        config:
+          filename: config.go
+          case: underscore
   github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller:
     interfaces:
       RPCClient:
-      Parser:
+      ProgramEventProcessor:
   github.com/smartcontractkit/chainlink-solana/pkg/solana/fees:
     interfaces:
       Estimator:
+        config:
+          filename: "Estimator.go"
   github.com/smartcontractkit/chainlink-solana/pkg/solana/txm:
     interfaces:
       SimpleKeystore:
-        filename: simple_keystore.go
-        case: underscore
+        config:
+          filename: simple_keystore.go
+          case: underscore

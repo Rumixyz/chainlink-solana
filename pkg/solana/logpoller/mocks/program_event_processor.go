@@ -12,12 +12,12 @@ type ProgramEventProcessor struct {
 	mock.Mock
 }
 
-type Parser_Expecter struct {
+type ProgramEventProcessor_Expecter struct {
 	mock *mock.Mock
 }
 
-func (_m *ProgramEventProcessor) EXPECT() *Parser_Expecter {
-	return &Parser_Expecter{mock: &_m.Mock}
+func (_m *ProgramEventProcessor) EXPECT() *ProgramEventProcessor_Expecter {
+	return &ProgramEventProcessor_Expecter{mock: &_m.Mock}
 }
 
 // Process provides a mock function with given fields: _a0
@@ -38,37 +38,37 @@ func (_m *ProgramEventProcessor) Process(_a0 logpoller.ProgramEvent) error {
 	return r0
 }
 
-// Parser_ProcessEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Process'
-type Parser_ProcessEvent_Call struct {
+// ProgramEventProcessor_Process_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Process'
+type ProgramEventProcessor_Process_Call struct {
 	*mock.Call
 }
 
 // Process is a helper method to define mock.On call
 //   - _a0 logpoller.ProgramEvent
-func (_e *Parser_Expecter) Process(_a0 interface{}) *Parser_ProcessEvent_Call {
-	return &Parser_ProcessEvent_Call{Call: _e.mock.On("Process", _a0)}
+func (_e *ProgramEventProcessor_Expecter) Process(_a0 interface{}) *ProgramEventProcessor_Process_Call {
+	return &ProgramEventProcessor_Process_Call{Call: _e.mock.On("Process", _a0)}
 }
 
-func (_c *Parser_ProcessEvent_Call) Run(run func(_a0 logpoller.ProgramEvent)) *Parser_ProcessEvent_Call {
+func (_c *ProgramEventProcessor_Process_Call) Run(run func(_a0 logpoller.ProgramEvent)) *ProgramEventProcessor_Process_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(logpoller.ProgramEvent))
 	})
 	return _c
 }
 
-func (_c *Parser_ProcessEvent_Call) Return(_a0 error) *Parser_ProcessEvent_Call {
+func (_c *ProgramEventProcessor_Process_Call) Return(_a0 error) *ProgramEventProcessor_Process_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Parser_ProcessEvent_Call) RunAndReturn(run func(logpoller.ProgramEvent) error) *Parser_ProcessEvent_Call {
+func (_c *ProgramEventProcessor_Process_Call) RunAndReturn(run func(logpoller.ProgramEvent) error) *ProgramEventProcessor_Process_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// NewParser creates a new instance of ProgramEventProcessor. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// NewProgramEventProcessor creates a new instance of ProgramEventProcessor. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
-func NewParser(t interface {
+func NewProgramEventProcessor(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *ProgramEventProcessor {

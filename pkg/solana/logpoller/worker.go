@@ -237,10 +237,10 @@ func (g *WorkerGroup) runRetries(ctx context.Context) {
 
 			return
 		case <-timer.C:
+			g.mu.RLock()
 			keys := make([]string, 0, len(g.retryMap))
 			retries := make([]retryableJob, 0, len(g.retryMap))
 
-			g.mu.RLock()
 			for key, retry := range g.retryMap {
 				if time.Now().After(retry.when) {
 					keys = append(keys, key)

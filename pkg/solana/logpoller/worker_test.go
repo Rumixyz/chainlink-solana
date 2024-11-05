@@ -27,11 +27,15 @@ func TestWorkerGroup(t *testing.T) {
 		require.NoError(t, group.Close())
 	})
 
+	var mu sync.RWMutex
 	output := make([]int, 10)
 
 	for idx := range output {
 		job := testJob{
 			job: func(ctx context.Context) error {
+				mu.Lock()
+				defer mu.Unlock()
+
 				output[idx] = 1
 
 				return nil
@@ -42,6 +46,9 @@ func TestWorkerGroup(t *testing.T) {
 	}
 
 	tests.AssertEventually(t, func() bool {
+		mu.RLock()
+		defer mu.RUnlock()
+
 		return reflect.DeepEqual([]int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, output)
 	})
 }
@@ -106,10 +113,14 @@ func TestWorkerGroup_Close(t *testing.T) {
 
 	require.NoError(t, group.Start(ctx))
 
+	var mu sync.RWMutex
 	output := make([]int, 10)
 
 	for idx := range output {
 		_ = group.Do(ctx, testJob{job: func(ctx context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+
 			// make one run longer than the wait time
 			if idx == 9 {
 				timer := time.NewTimer(time.Second)
@@ -136,7 +147,10 @@ func TestWorkerGroup_Close(t *testing.T) {
 	// wait for the first 9 to finish and close the group
 	time.Sleep(100 * time.Millisecond)
 	group.Close()
+
+	mu.RLock()
 	assert.Equal(t, []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 0}, output)
+	mu.RUnlock()
 }
 
 func TestWorkerGroup_DoContext(t *testing.T) {

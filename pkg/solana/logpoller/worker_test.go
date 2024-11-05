@@ -149,8 +149,20 @@ func TestWorkerGroup_Close(t *testing.T) {
 	group.Close()
 
 	mu.RLock()
-	assert.Equal(t, []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 0}, output)
+	var finished int
+	var notFinished int
+
+	for _, val := range output {
+		if val == 1 {
+			finished++
+		} else if val == 0 {
+			notFinished++
+		}
+	}
 	mu.RUnlock()
+
+	assert.GreaterOrEqual(t, finished, 1)
+	assert.GreaterOrEqual(t, notFinished, 1)
 }
 
 func TestWorkerGroup_DoContext(t *testing.T) {

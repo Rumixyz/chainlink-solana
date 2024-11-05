@@ -190,6 +190,26 @@ func TestWorkerGroup_DoContext(t *testing.T) {
 	})
 }
 
+func BenchmarkWorkerGroup(b *testing.B) {
+	ctx := tests.Context(b)
+
+	group := logpoller.NewWorkerGroup(100, logger.Nop())
+	job := testJob{job: func(ctx context.Context) error { return nil }}
+
+	require.NoError(b, group.Start(ctx))
+
+	defer func() {
+		require.NoError(b, group.Close())
+	}()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = group.Do(ctx, job)
+	}
+}
+
 type testJob struct {
 	job func(context.Context) error
 }

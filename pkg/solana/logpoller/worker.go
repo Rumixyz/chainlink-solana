@@ -62,7 +62,6 @@ type WorkerGroup struct {
 	lggr          logger.Logger
 
 	// worker group state
-	activeWorkers int
 	workers       chan *worker
 	queue         *queue[Job]
 	input         chan Job
@@ -96,6 +95,15 @@ func NewWorkerGroup(workers int, lggr logger.Logger) *WorkerGroup {
 		Start: g.start,
 		Close: g.close,
 	}.NewServiceEngine(lggr)
+
+	for idx := range workers {
+		g.workers <- &worker{
+			Name:  fmt.Sprintf("worker-%d", idx+1),
+			Queue: g.workers,
+			Retry: g.chRetry,
+			Lggr:  g.lggr,
+		}
+	}
 
 	return g
 }
@@ -286,26 +294,8 @@ func (g *WorkerGroup) processQueue(ctx context.Context) {
 }
 
 func (g *WorkerGroup) doJob(ctx context.Context, job Job) {
-	var wkr *worker
+	wkr := <-g.workers
 
-	// no read or write locks on activeWorkers or maxWorkers because it's
-	// assumed the job loop is a single process reading from the job queue
-	if g.activeWorkers < g.maxWorkers {
-		// create a new worker
-		wkr = &worker{
-			Name:  fmt.Sprintf("worker-%d", g.activeWorkers+1),
-			Queue: g.workers,
-			Retry: g.chRetry,
-			Lggr:  g.lggr,
-		}
-
-		g.activeWorkers++
-	} else {
-		// wait for a worker to be available
-		wkr = <-g.workers
-	}
-
-	// have worker do the work
 	go wkr.Do(ctx, job)
 }
 

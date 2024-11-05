@@ -18,8 +18,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/chains"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/loop"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/core"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
@@ -47,8 +47,9 @@ const DefaultRequestTimeout = 30 * time.Second
 
 // ChainOpts holds options for configuring a Chain.
 type ChainOpts struct {
-	Logger   logger.Logger
-	KeyStore core.Keystore
+	Logger     logger.Logger
+	KeyStore   core.Keystore
+	DataSource sqlutil.DataSource
 }
 
 func (o *ChainOpts) Validate() (err error) {
@@ -61,6 +62,10 @@ func (o *ChainOpts) Validate() (err error) {
 	if o.KeyStore == nil {
 		err = errors.Join(err, required("KeyStore"))
 	}
+	// TODO: uncomment after merging chainlink PR to pass DataSource
+	if o.DataSource == nil {
+		err = errors.Join(err, required("DataSource"))
+	}
 	return
 }
 
@@ -72,7 +77,7 @@ func NewChain(cfg *config.TOMLConfig, opts ChainOpts) (Chain, error) {
 	if !cfg.IsEnabled() {
 		return nil, fmt.Errorf("cannot create new chain with ID %s: chain is disabled", *cfg.ChainID)
 	}
-	c, err := newChain(*cfg.ChainID, cfg, opts.KeyStore, opts.Logger)
+	c, err := newChain(*cfg.ChainID, cfg, opts.KeyStore, opts.Logger, opts.DataSource)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +227,7 @@ func (v *verifiedCachedClient) GetAccountInfoWithOpts(ctx context.Context, addr 
 	return v.ReaderWriter.GetAccountInfoWithOpts(ctx, addr, opts)
 }
 
-func newChain(id string, cfg *config.TOMLConfig, ks loop.Keystore, lggr logger.Logger) (*chain, error) {
+func newChain(id string, cfg *config.TOMLConfig, ks core.Keystore, lggr logger.Logger, ds sqlutil.DataSource) (*chain, error) {
 	lggr = logger.With(lggr, "chainID", id, "chain", "solana")
 	var ch = chain{
 		id:          id,
@@ -306,7 +311,7 @@ func newChain(id string, cfg *config.TOMLConfig, ks loop.Keystore, lggr logger.L
 		bc = internal.NewLoader[monitor.BalanceClient](func() (monitor.BalanceClient, error) { return ch.multiNode.SelectRPC() })
 	}
 
-	ch.txm = txm.NewTxm(ch.id, tc, sendTx, cfg, ks, lggr)
+	ch.txm = txm.NewTxm(ch.id, tc, sendTx, cfg, ks, lggr, ds)
 	ch.balanceMonitor = monitor.NewBalanceMonitor(ch.id, cfg, lggr, ks, bc)
 	return &ch, nil
 }

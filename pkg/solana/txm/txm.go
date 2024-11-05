@@ -13,6 +13,7 @@ import (
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/loop"
@@ -55,6 +56,7 @@ type Txm struct {
 	cfg    config.Config
 	txs    PendingTxContext
 	ks     SimpleKeystore
+	ds     sqlutil.DataSource
 	client internal.Loader[client.ReaderWriter]
 	fee    fees.Estimator
 	// sendTx is an override for sending transactions rather than using a single client
@@ -85,7 +87,7 @@ type pendingTx struct {
 // NewTxm creates a txm. Uses simulation so should only be used to send txes to trusted contracts i.e. OCR.
 func NewTxm(chainID string, client internal.Loader[client.ReaderWriter],
 	sendTx func(ctx context.Context, tx *solanaGo.Transaction) (solanaGo.Signature, error),
-	cfg config.Config, ks SimpleKeystore, lggr logger.Logger) *Txm {
+	cfg config.Config, ks SimpleKeystore, lggr logger.Logger, ds sqlutil.DataSource) *Txm {
 	if sendTx == nil {
 		// default sendTx using a single RPC
 		sendTx = func(ctx context.Context, tx *solanaGo.Transaction) (solanaGo.Signature, error) {
@@ -105,6 +107,7 @@ func NewTxm(chainID string, client internal.Loader[client.ReaderWriter],
 		cfg:    cfg,
 		txs:    newPendingTxContextWithProm(chainID),
 		ks:     ks,
+		ds:     ds,
 		client: client,
 		sendTx: sendTx,
 	}

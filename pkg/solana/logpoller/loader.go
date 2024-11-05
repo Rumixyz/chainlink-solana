@@ -3,7 +3,6 @@ package logpoller
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -51,10 +50,9 @@ type EncodedLogCollector struct {
 	chJobs  chan Job
 	workers *WorkerGroup
 
-	mu                sync.RWMutex
 	loadingBlocks     atomic.Bool
-	highestSlot       uint64
-	highestSlotLoaded uint64
+	highestSlot       atomic.Uint64
+	highestSlotLoaded atomic.Uint64
 	lastSentSlot      atomic.Uint64
 }
 
@@ -141,6 +139,8 @@ func (c *EncodedLogCollector) runSlotPolling(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
+			timer.Stop()
+
 			return
 		case <-timer.C:
 			ctxB, cancel := context.WithTimeout(ctx, c.rpcTimeLimit)
@@ -175,10 +175,8 @@ func (c *EncodedLogCollector) runSlotProcessing(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case slot := <-c.chSlot:
-			c.mu.Lock()
-
-			if slot > c.highestSlot {
-				c.highestSlot = slot
+			if slot > c.highestSlot.Load() {
+				c.highestSlot.Store(slot)
 
 				if !c.loadingBlocks.Load() {
 					c.loadingBlocks.Store(true)
@@ -196,14 +194,10 @@ func (c *EncodedLogCollector) runSlotProcessing(ctx context.Context) {
 							return
 						}
 
-						c.mu.Lock()
-						c.highestSlotLoaded = end
-						c.mu.Unlock()
-					}(c.highestSlotLoaded+1, c.highestSlot)
+						c.highestSlotLoaded.Store(end)
+					}(c.highestSlotLoaded.Load()+1, slot)
 				}
 			}
-
-			c.mu.Unlock()
 		}
 	}
 }

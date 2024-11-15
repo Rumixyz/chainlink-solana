@@ -28,7 +28,6 @@ import (
 	relayconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
-	commontypes "github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
 	bigmath "github.com/smartcontractkit/chainlink-common/pkg/utils/big_math"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
@@ -127,6 +126,13 @@ func TestTxm(t *testing.T) {
 			cfg := config.NewDefault()
 			cfg.Chain.FeeEstimatorMode = &estimator
 			mc := mocks.NewReaderWriter(t)
+			blockhash, _ := solana.HashFromBase58("blockhash")
+			mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+				Value: &rpc.LatestBlockhashResult{
+					Blockhash:            blockhash,
+					LastValidBlockHeight: uint64(2000),
+				},
+			}, nil)
 			mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 			mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
@@ -137,6 +143,7 @@ func TestTxm(t *testing.T) {
 			loader := utils.NewLazyLoad(func() (client.ReaderWriter, error) { return mc, nil })
 			txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 			require.NoError(t, txm.Start(ctx))
+			t.Cleanup(func() { require.NoError(t, txm.Close()) })
 			t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 			// tracking prom metrics
@@ -204,7 +211,7 @@ func TestTxm(t *testing.T) {
 
 				// send tx
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()
 
 				// no transactions stored inflight txs list
@@ -240,7 +247,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait() // wait to be picked up and processed
 
 				// no transactions stored inflight txs list
@@ -254,7 +261,6 @@ func TestTxm(t *testing.T) {
 				_, err := txm.GetTransactionStatus(ctx, testTxID)
 				require.Error(t, err) // transaction cleared from storage after finalized should not return status
 			})
-
 			// tx fails simulation (simulation error)
 			t.Run("fail_simulation", func(t *testing.T) {
 				tx, signed := getTx(t, 2, mkey)
@@ -272,7 +278,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // txs cleared quickly
 
@@ -308,7 +314,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // txs cleared after timeout
 
@@ -348,7 +354,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // txs cleared after timeout
 
@@ -363,7 +369,6 @@ func TestTxm(t *testing.T) {
 				// panic if sendTx called after context cancelled
 				mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
 			})
-
 			// tx fails simulation with BlockHashNotFound error
 			// txm should continue to finalize tx (in this case it will succeed)
 			t.Run("fail_simulation_blockhashNotFound", func(t *testing.T) {
@@ -399,7 +404,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // txs cleared after timeout
 
@@ -441,7 +446,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // txs cleared after timeout
 
@@ -486,7 +491,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // inflight txs cleared after timeout
 
@@ -538,7 +543,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // inflight txs cleared after timeout
 
@@ -576,7 +581,7 @@ func TestTxm(t *testing.T) {
 
 				// tx should be able to queue
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()                                  // wait to be picked up and processed
 				waitFor(t, waitDuration, txm, prom, empty) // inflight txs cleared after timeout
 
@@ -622,7 +627,7 @@ func TestTxm(t *testing.T) {
 
 				// send tx
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 				wg.Wait()
 
 				// no transactions stored inflight txs list
@@ -676,7 +681,7 @@ func TestTxm(t *testing.T) {
 
 				// send tx - with disabled fee bumping
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, SetFeeBumpPeriod(0)))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}, SetFeeBumpPeriod(0)))
 				wg.Wait()
 
 				// no transactions stored inflight txs list
@@ -728,7 +733,7 @@ func TestTxm(t *testing.T) {
 
 				// send tx - with disabled fee bumping and disabled compute unit limit
 				testTxID := uuid.New().String()
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, SetFeeBumpPeriod(0), SetComputeUnitLimit(0)))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}, SetFeeBumpPeriod(0), SetComputeUnitLimit(0)))
 				wg.Wait()
 
 				// no transactions stored inflight txs list
@@ -766,6 +771,13 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
+	blockhash, err := solana.HashFromBase58("blockhash")
+	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+		Value: &rpc.LatestBlockhashResult{
+			Blockhash:            blockhash,
+			LastValidBlockHeight: uint64(2000),
+		},
+	}, nil)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 
 	computeUnitLimitDefault := fees.ComputeUnitLimit(cfg.ComputeUnitLimitDefault())
@@ -777,6 +789,7 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	loader := utils.NewLazyLoad(func() (client.ReaderWriter, error) { return mc, nil })
 	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 	require.NoError(t, txm.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 	// tracking prom metrics
@@ -836,7 +849,7 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 
 		// tx should be able to queue
 		testTxID := uuid.New().String()
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+		assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 		wg.Wait()                                   // wait to be picked up and processed
 		waitFor(t, 5*time.Second, txm, prom, empty) // inflight txs cleared after timeout
 
@@ -965,6 +978,13 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality or error
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
+	blockhash, _ := solana.HashFromBase58("blockhash")
+	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+		Value: &rpc.LatestBlockhashResult{
+			Blockhash:            blockhash,
+			LastValidBlockHeight: uint64(2000),
+		},
+	}, nil)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 
 	// mock solana keystore
@@ -974,6 +994,7 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	loader := utils.NewLazyLoad(func() (client.ReaderWriter, error) { return mc, nil })
 	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 	require.NoError(t, txm.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 	// tracking prom metrics
@@ -1040,7 +1061,7 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 
 		// send tx
 		testTxID := uuid.New().String()
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
+		assert.NoError(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx, UUID: testTxID}))
 		wg.Wait()
 
 		// no transactions stored inflight txs list
@@ -1069,7 +1090,7 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 		mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("simulation failed")).Once()
 
 		// tx should NOT be able to queue
-		assert.Error(t, txm.Enqueue(ctx, t.Name(), tx, nil))
+		assert.Error(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx}))
 	})
 
 	t.Run("simulation_returns_error", func(t *testing.T) {
@@ -1085,11 +1106,7 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 
 		txID := uuid.NewString()
 		// tx should NOT be able to queue
-		assert.Error(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
-		// tx should be stored in-memory and moved to errored state
-		status, err := txm.GetTransactionStatus(ctx, txID)
-		require.NoError(t, err)
-		require.Equal(t, commontypes.Failed, status)
+		assert.Error(t, txm.Enqueue(ctx, t.Name(), &PendingTx{Tx: *tx}))
 	})
 }
 
@@ -1098,6 +1115,13 @@ func TestTxm_Enqueue(t *testing.T) {
 	lggr := logger.Test(t)
 	cfg := config.NewDefault()
 	mc := mocks.NewReaderWriter(t)
+	blockhash, _ := solana.HashFromBase58("blockhash")
+	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+		Value: &rpc.LatestBlockhashResult{
+			Blockhash:            blockhash,
+			LastValidBlockHeight: uint64(2000),
+		},
+	}, nil)
 	mc.On("SendTx", mock.Anything, mock.Anything).Return(solana.Signature{}, nil).Maybe()
 	mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
 	mc.On("SignatureStatuses", mock.Anything, mock.AnythingOfType("[]solana.Signature")).Return(
@@ -1147,7 +1171,7 @@ func TestTxm_Enqueue(t *testing.T) {
 	loader := utils.NewLazyLoad(func() (client.ReaderWriter, error) { return mc, nil })
 	txm := NewTxm("enqueue_test", loader, nil, cfg, mkey, lggr)
 
-	require.ErrorContains(t, txm.Enqueue(ctx, "txmUnstarted", &solana.Transaction{}, nil), "not started")
+	require.ErrorContains(t, txm.Enqueue(ctx, "txmUnstarted", &PendingTx{}), "not started")
 	require.NoError(t, txm.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
@@ -1158,31 +1182,16 @@ func TestTxm_Enqueue(t *testing.T) {
 	}{
 		{"success", tx, false},
 		{"invalid_key", invalidTx, true},
-		{"nil_pointer", nil, true},
 		{"empty_tx", &solana.Transaction{}, true},
 	}
 
 	for _, run := range txs {
 		t.Run(run.name, func(t *testing.T) {
 			if !run.fail {
-				assert.NoError(t, txm.Enqueue(ctx, run.name, run.tx, nil))
+				assert.NoError(t, txm.Enqueue(ctx, run.name, &PendingTx{Tx: *run.tx}))
 				return
 			}
-			assert.Error(t, txm.Enqueue(ctx, run.name, run.tx, nil))
+			assert.Error(t, txm.Enqueue(ctx, run.name, &PendingTx{Tx: *run.tx}))
 		})
 	}
-}
-
-func addSigAndLimitToTx(t *testing.T, keystore SimpleKeystore, pubkey solana.PublicKey, tx solana.Transaction, limit fees.ComputeUnitLimit) *solana.Transaction {
-	txCopy := tx
-	// sign tx
-	txMsg, err := tx.Message.MarshalBinary()
-	require.NoError(t, err)
-	sigBytes, err := keystore.Sign(context.Background(), pubkey.String(), txMsg)
-	require.NoError(t, err)
-	var sig [64]byte
-	copy(sig[:], sigBytes)
-	txCopy.Signatures = append(txCopy.Signatures, sig)
-	require.NoError(t, fees.SetComputeUnitLimit(&txCopy, limit))
-	return &txCopy
 }

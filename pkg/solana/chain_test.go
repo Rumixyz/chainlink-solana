@@ -17,18 +17,20 @@ import (
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/chainlink-common/pkg/config"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/config"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	mn "github.com/smartcontractkit/chainlink-solana/pkg/solana/client/multinode"
 	solcfg "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/fees"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
 )
 
@@ -534,11 +536,8 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(0), receiverBal)
 
-	createTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *solana.Transaction {
-		selectedClient, err = testChain.getClient()
+	createMsgWithTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *txm.PendingTx {
 		assert.NoError(t, err)
-		hash, hashErr := selectedClient.LatestBlockhash(tests.Context(t))
-		assert.NoError(t, hashErr)
 		tx, txErr := solana.NewTransaction(
 			[]solana.Instruction{
 				system.NewTransferInstruction(
@@ -547,15 +546,15 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 					receiver,
 				).Build(),
 			},
-			hash.Value.Blockhash,
+			solana.Hash{},
 			solana.TransactionPayer(signer),
 		)
 		require.NoError(t, txErr)
-		return tx
+		return &txm.PendingTx{Tx: *tx}
 	}
 
 	// Send funds twice, along with an invalid transaction
-	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success", createTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil))
+	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
 
 	// Wait for new block hash
 	currentBh, err := selectedClient.LatestBlockhash(tests.Context(t))
@@ -576,8 +575,8 @@ NewBlockHash:
 		}
 	}
 
-	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success_2", createTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil))
-	require.Error(t, testChain.txm.Enqueue(tests.Context(t), "test_invalidSigner", createTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil)) // cannot sign tx before enqueuing
+	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success_2", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
+	require.Error(t, testChain.txm.Enqueue(tests.Context(t), "test_invalidSigner", createMsgWithTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL))) // cannot sign tx before enqueuing
 
 	// wait for all txes to finish
 	ctx, cancel := context.WithCancel(tests.Context(t))

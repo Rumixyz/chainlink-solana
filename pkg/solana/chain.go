@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -527,11 +528,6 @@ func (c *chain) HealthReport() map[string]error {
 }
 
 func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, balanceCheck bool) error {
-	reader, err := c.Reader()
-	if err != nil {
-		return fmt.Errorf("chain unreachable: %w", err)
-	}
-
 	fromKey, err := solanago.PublicKeyFromBase58(from)
 	if err != nil {
 		return fmt.Errorf("failed to parse from key: %w", err)
@@ -545,10 +541,6 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 	}
 	amountI := amount.Uint64()
 
-	blockhash, err := reader.LatestBlockhash(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get latest block hash: %w", err)
-	}
 	tx, err := solanago.NewTransaction(
 		[]solanago.Instruction{
 			system.NewTransferInstruction(
@@ -557,21 +549,24 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 				toKey,
 			).Build(),
 		},
-		blockhash.Value.Blockhash,
+		solana.Hash{}, // Will be set within sendWithRetry txm function.
 		solanago.TransactionPayer(fromKey),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create tx: %w", err)
 	}
 
-	if balanceCheck {
-		if err = solanaValidateBalance(ctx, reader, fromKey, amountI, tx.Message.ToBase64()); err != nil {
-			return fmt.Errorf("failed to validate balance: %w", err)
-		}
+	msg := &txm.PendingTx{
+		Tx: *tx,
+		// To perform balanceCheck we need a blockhash.
+		// Storing values to perform balanceCheck within sendWithRetry txm function before sending tx.
+		BalanceCheck: balanceCheck,
+		From:         fromKey,
+		Amount:       amountI,
 	}
 
 	chainTxm := c.TxManager()
-	err = chainTxm.Enqueue(ctx, "", tx, nil,
+	err = chainTxm.Enqueue(ctx, "", msg,
 		txm.SetComputeUnitLimit(500), // reduce from default 200K limit - should only take 450 compute units
 		// no fee bumping and no additional fee - makes validating balance accurate
 		txm.SetComputeUnitPriceMax(0),
@@ -581,23 +576,6 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 	)
 	if err != nil {
 		return fmt.Errorf("transaction failed: %w", err)
-	}
-	return nil
-}
-
-func solanaValidateBalance(ctx context.Context, reader client.Reader, from solanago.PublicKey, amount uint64, msg string) error {
-	balance, err := reader.Balance(ctx, from)
-	if err != nil {
-		return err
-	}
-
-	fee, err := reader.GetFeeForMessage(ctx, msg)
-	if err != nil {
-		return err
-	}
-
-	if balance < (amount + fee) {
-		return fmt.Errorf("balance %d is too low for this transaction to be executed: amount %d + fee %d", balance, amount, fee)
 	}
 	return nil
 }

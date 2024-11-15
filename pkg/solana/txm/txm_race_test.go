@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	solanaGo "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -27,10 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func NewTestMsg() (msg pendingTx) {
+func NewTestMsg() (msg PendingTx) {
 	tx := solanaGo.Transaction{}
 	tx.Message.AccountKeys = append(tx.Message.AccountKeys, solanaGo.PublicKey{})
-	msg.tx = tx
+	msg.Tx = tx
 	return msg
 }
 
@@ -62,6 +64,7 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	// assemble minimal tx for testing retry
 	msg := NewTestMsg()
+	blockhash, _ := solana.HashFromBase58("blockhash")
 
 	testRunner := func(t *testing.T, client solanaClient.ReaderWriter) {
 		// build minimal txm
@@ -117,6 +120,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				Blockhash:            blockhash,
+				LastValidBlockHeight: uint64(2000),
+			},
+		}, nil)
 		testRunner(t, client)
 	})
 
@@ -153,6 +162,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				Blockhash:            blockhash,
+				LastValidBlockHeight: uint64(2000),
+			},
+		}, nil)
 		testRunner(t, client)
 	})
 
@@ -200,6 +215,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				Blockhash:            blockhash,
+				LastValidBlockHeight: uint64(2000),
+			},
+		}, nil)
 		testRunner(t, client)
 	})
 
@@ -207,34 +228,39 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		client := clientmocks.NewReaderWriter(t)
 		// client mock - first tx is always successful
 		msg0 := NewTestMsg()
-		require.NoError(t, fees.SetComputeUnitPrice(&msg0.tx, 0))
-		require.NoError(t, fees.SetComputeUnitLimit(&msg0.tx, 200_000))
-		msg0.tx.Signatures = make([]solanaGo.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg0.tx).Return(solanaGo.Signature{1}, nil)
+		require.NoError(t, fees.SetComputeUnitPrice(&msg0.Tx, 0))
+		require.NoError(t, fees.SetComputeUnitLimit(&msg0.Tx, 200_000))
+		msg0.Tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg0.Tx).Return(solanaGo.Signature{1}, nil)
 
 		// init bump tx fails, rebroadcast is successful
 		msg1 := NewTestMsg()
-		require.NoError(t, fees.SetComputeUnitPrice(&msg1.tx, 1))
-		require.NoError(t, fees.SetComputeUnitLimit(&msg1.tx, 200_000))
-		msg1.tx.Signatures = make([]solanaGo.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg1.tx).Return(solanaGo.Signature{}, fmt.Errorf("BUMP FAILED")).Once()
-		client.On("SendTx", mock.Anything, &msg1.tx).Return(solanaGo.Signature{2}, nil)
+		require.NoError(t, fees.SetComputeUnitPrice(&msg1.Tx, 1))
+		require.NoError(t, fees.SetComputeUnitLimit(&msg1.Tx, 200_000))
+		msg1.Tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg1.Tx).Return(solanaGo.Signature{}, fmt.Errorf("BUMP FAILED")).Once()
+		client.On("SendTx", mock.Anything, &msg1.Tx).Return(solanaGo.Signature{2}, nil)
 
 		// init bump tx success, rebroadcast fails
 		msg2 := NewTestMsg()
-		require.NoError(t, fees.SetComputeUnitPrice(&msg2.tx, 2))
-		require.NoError(t, fees.SetComputeUnitLimit(&msg2.tx, 200_000))
-		msg2.tx.Signatures = make([]solanaGo.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg2.tx).Return(solanaGo.Signature{3}, nil).Once()
-		client.On("SendTx", mock.Anything, &msg2.tx).Return(solanaGo.Signature{}, fmt.Errorf("REBROADCAST FAILED"))
+		require.NoError(t, fees.SetComputeUnitPrice(&msg2.Tx, 2))
+		require.NoError(t, fees.SetComputeUnitLimit(&msg2.Tx, 200_000))
+		msg2.Tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg2.Tx).Return(solanaGo.Signature{3}, nil).Once()
+		client.On("SendTx", mock.Anything, &msg2.Tx).Return(solanaGo.Signature{}, fmt.Errorf("REBROADCAST FAILED"))
 
 		// always successful
 		msg3 := NewTestMsg()
-		require.NoError(t, fees.SetComputeUnitPrice(&msg3.tx, 4))
-		require.NoError(t, fees.SetComputeUnitLimit(&msg3.tx, 200_000))
-		msg3.tx.Signatures = make([]solanaGo.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg3.tx).Return(solanaGo.Signature{4}, nil)
-
+		require.NoError(t, fees.SetComputeUnitPrice(&msg3.Tx, 4))
+		require.NoError(t, fees.SetComputeUnitLimit(&msg3.Tx, 200_000))
+		msg3.Tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg3.Tx).Return(solanaGo.Signature{4}, nil)
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				Blockhash:            blockhash,
+				LastValidBlockHeight: uint64(2000),
+			},
+		}, nil)
 		testRunner(t, client)
 	})
 }

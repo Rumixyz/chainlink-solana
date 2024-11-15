@@ -17,13 +17,14 @@ import (
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/chainlink-common/pkg/config"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/config"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	mn "github.com/smartcontractkit/chainlink-solana/pkg/solana/client/multinode"
@@ -533,7 +534,6 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 	receiverBal, err := selectedClient.Balance(tests.Context(t), pubKeyReceiver)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(0), receiverBal)
-
 	createTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *solana.Transaction {
 		selectedClient, err = testChain.getClient()
 		assert.NoError(t, err)
@@ -556,7 +556,6 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 
 	// Send funds twice, along with an invalid transaction
 	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success", createTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil))
-
 	// Wait for new block hash
 	currentBh, err := selectedClient.LatestBlockhash(tests.Context(t))
 	require.NoError(t, err)
@@ -578,7 +577,6 @@ NewBlockHash:
 
 	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success_2", createTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil))
 	require.Error(t, testChain.txm.Enqueue(tests.Context(t), "test_invalidSigner", createTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil)) // cannot sign tx before enqueuing
-
 	// wait for all txes to finish
 	ctx, cancel := context.WithCancel(tests.Context(t))
 	t.Cleanup(cancel)

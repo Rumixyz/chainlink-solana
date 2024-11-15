@@ -1,6 +1,6 @@
 //go:build integration
 
-package txm_test
+package txm
 
 import (
 	"context"
@@ -14,14 +14,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
 	solanaClient "github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
-	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 	keyMocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
 
 	relayconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
@@ -72,7 +71,7 @@ func TestTxm_Integration(t *testing.T) {
 			client, err := solanaClient.NewClient(url, cfg, 2*time.Second, lggr)
 			require.NoError(t, err)
 			loader := utils.NewLazyLoad(func() (solanaClient.ReaderWriter, error) { return client, nil })
-			txm := txm.NewTxm("localnet", loader, nil, cfg, mkey, lggr)
+			txm := NewTxm("localnet", loader, nil, cfg, mkey, lggr)
 
 			// track initial balance
 			initBal, err := client.Balance(ctx, pubKey)
@@ -83,12 +82,11 @@ func TestTxm_Integration(t *testing.T) {
 
 			// already started
 			assert.Error(t, txm.Start(ctx))
-
 			createTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *solana.Transaction {
 				// create transfer tx
 				hash, err := client.LatestBlockhash(ctx)
 				assert.NoError(t, err)
-				tx, err := solana.NewTransaction(
+				tx, txErr := solana.NewTransaction(
 					[]solana.Instruction{
 						system.NewTransferInstruction(
 							amt,
@@ -99,10 +97,9 @@ func TestTxm_Integration(t *testing.T) {
 					hash.Value.Blockhash,
 					solana.TransactionPayer(signer),
 				)
-				require.NoError(t, err)
+				require.NoError(t, txErr)
 				return tx
 			}
-
 			// enqueue txs (must pass to move on to load test)
 			require.NoError(t, txm.Enqueue(ctx, "test_success_0", createTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil))
 			require.Error(t, txm.Enqueue(ctx, "test_invalidSigner", createTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL), nil)) // cannot sign tx before enqueuing
@@ -114,7 +111,7 @@ func TestTxm_Integration(t *testing.T) {
 			// load test: try to overload txs, confirm, or simulation
 			for i := 0; i < 1000; i++ {
 				assert.NoError(t, txm.Enqueue(ctx, fmt.Sprintf("load_%d", i), createTx(loadTestKey.PublicKey(), loadTestKey.PublicKey(), loadTestKey.PublicKey(), uint64(i)), nil))
-				time.Sleep(10 * time.Millisecond) // ~100 txs per second (note: have run 5ms delays for ~200tx/s succesfully)
+				time.Sleep(10 * time.Millisecond) // ~100 txs per second (note: have run 5ms delays for ~200tx/s successfully)
 			}
 
 			// check to make sure all txs are closed out from inflight list (longest should last MaxConfirmTimeout)

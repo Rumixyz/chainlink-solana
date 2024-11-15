@@ -62,7 +62,6 @@ func TestTransmitter_TxSize(t *testing.T) {
 	rw.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 		Value: &rpc.LatestBlockhashResult{},
 	}, nil)
-
 	transmitter := Transmitter{
 		stateID:            mustNewRandomPublicKey(),
 		programID:          mustNewRandomPublicKey(),

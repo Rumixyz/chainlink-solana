@@ -194,13 +194,11 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg PendingTx) (solanaGo.Tran
 		return fees.ComputeUnitPrice(fee)
 	}
 
-	// Get client
+	// Assign blockhash to msg
 	client, err := txm.client.Get()
 	if err != nil {
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get client in soltxm.sendWithRetry: %w", err)
 	}
-
-	// Get blockhash and assign to msg
 	blockhash, err := client.LatestBlockhash(ctx)
 	if err != nil {
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get blockhash in soltxm.sendWithRetry: %w", err)

@@ -206,7 +206,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg PendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get blockhash in soltxm.sendWithRetry: %w", err)
 	}
 	msg.Tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-	msg.LastValidBlockHeight = blockhash.Value.LastValidBlockHeight
+	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
 
 	// if requested, validate balance before sending transaction.
 	if msg.BalanceCheck {

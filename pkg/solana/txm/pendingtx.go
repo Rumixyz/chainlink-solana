@@ -54,7 +54,7 @@ type PendingTx struct {
 	createTs             time.Time
 	retentionTs          time.Time
 	state                TxState
-	LastValidBlockHeight uint64 // to track expiration
+	lastValidBlockHeight uint64 // to track expiration
 	BalanceCheck         bool
 	From                 solana.PublicKey // to perform balanceCheck
 	Amount               uint64           // to perform balanceCheck

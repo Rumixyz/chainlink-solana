@@ -284,7 +284,7 @@ func TestChain_Transact(t *testing.T) {
 		return sig[:]
 	}, nil)
 
-	c, err := newChain("localnet", cfg, mkey, lgr, sqlutilmocks.NewDataSource(t))
+	c, err := newChain("localnet", cfg, mkey, lgr, sqlutilmocks.NewDataSource())
 	require.NoError(t, err)
 	require.NoError(t, c.txm.Start(ctx))
 
@@ -358,7 +358,7 @@ func TestSolanaChain_MultiNode_GetClient(t *testing.T) {
 		},
 	}
 
-	testChain, err := newChain("devnet", cfg, nil, logger.Test(t), sqlutilmocks.NewDataSource(t))
+	testChain, err := newChain("devnet", cfg, nil, logger.Test(t), sqlutilmocks.NewDataSource())
 	require.NoError(t, err)
 
 	err = testChain.Start(tests.Context(t))
@@ -400,7 +400,7 @@ func TestChain_MultiNode_TransactionSender(t *testing.T) {
 
 	// mocked keystore
 	mkey := mocks.NewSimpleKeystore(t)
-	c, err := newChain("localnet", cfg, mkey, lgr, sqlutilmocks.NewDataSource(t))
+	c, err := newChain("localnet", cfg, mkey, lgr, sqlutilmocks.NewDataSource())
 	require.NoError(t, err)
 	require.NoError(t, c.Start(ctx))
 	defer func() {
@@ -517,7 +517,7 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 	mkey.On("Sign", mock.Anything, pubKeyReceiver.String(), mock.Anything).Return([]byte{}, config.KeyNotFoundError{ID: pubKeyReceiver.String(), KeyType: "Solana"})
 	mkey.On("Accounts", mock.Anything).Return([]string{pubKey.String()}, nil).Maybe()
 
-	testChain, err := newChain("localnet", cfg, mkey, logger.Test(t), sqlutilmocks.NewDataSource(t))
+	testChain, err := newChain("localnet", cfg, mkey, logger.Test(t), sqlutilmocks.NewDataSource())
 	require.NoError(t, err)
 
 	err = testChain.Start(tests.Context(t))

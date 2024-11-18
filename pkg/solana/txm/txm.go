@@ -453,24 +453,24 @@ func (txm *Txm) confirm() {
 			return
 		case <-tick:
 			client, err := txm.client.Get()
+			// Get list of transaction signatures to confirm
+			// If no signatures to confirm, we can break loop.
+			sigs := txm.txs.ListAll()
+			if len(sigs) == 0 {
+				break
+			}
+
 			if err != nil {
 				txm.lggr.Errorw("failed to get client in txm.confirm", "error", err)
 				return
 			}
-			txm.processConfirmations(ctx, client)
+			txm.processConfirmations(ctx, client, sigs)
 		}
 		tick = time.After(utils.WithJitter(txm.cfg.ConfirmPollPeriod()))
 	}
 }
 
-func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter) {
-	// Get list of transaction signatures to confirm
-	sigs := txm.txs.ListAll()
-
-	if len(sigs) == 0 {
-		return
-	}
-
+func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter, sigs []solanaGo.Signature) {
 	// batch sigs no more than MaxSigsToConfirm each
 	sigsBatch, err := utils.BatchSplit(sigs, MaxSigsToConfirm)
 	if err != nil { // this should never happen

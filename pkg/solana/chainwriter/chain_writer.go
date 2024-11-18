@@ -2,6 +2,7 @@ package chainwriter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 

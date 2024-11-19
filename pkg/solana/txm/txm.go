@@ -521,7 +521,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			continue
 		}
 
-		rebroadcastTx := PendingTx{
+		rebroadcastTx := &PendingTx{
 			Tx:               tx.Tx,
 			BalanceCheck:     tx.BalanceCheck,
 			Amount:           tx.Amount,
@@ -538,10 +538,10 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			rebroadcastTx.UUID = uuid.New().String()
 		}
 
-		// Attempt to rebroadcast the transaction with sendWithRetry
-		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
+		// Re-enqueue the transaction for rebroadcasting
+		err = txm.Enqueue(ctx, rebroadcastTx)
 		if err != nil {
-			txm.lggr.Errorw("failed to send rebroadcast transaction", "error", err)
+			txm.lggr.Errorw("failed to enqueue rebroadcast transaction", "previous id", tx.UUID, "new id", rebroadcastTx.UUID, "error", err)
 			continue
 		}
 

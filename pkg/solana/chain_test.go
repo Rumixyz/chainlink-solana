@@ -536,7 +536,7 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(0), receiverBal)
 
-	createMsgWithTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *txm.PendingTx {
+	createMsgWithTx := func(accountID string, signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *txm.PendingTx {
 		assert.NoError(t, err)
 		tx, txErr := solana.NewTransaction(
 			[]solana.Instruction{
@@ -550,11 +550,11 @@ func TestSolanaChain_MultiNode_Txm(t *testing.T) {
 			solana.TransactionPayer(signer),
 		)
 		require.NoError(t, txErr)
-		return &txm.PendingTx{Tx: *tx}
+		return &txm.PendingTx{Tx: *tx, AccountID: accountID}
 	}
 
 	// Send funds twice, along with an invalid transaction
-	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
+	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), createMsgWithTx("test_success", pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
 
 	// Wait for new block hash
 	currentBh, err := selectedClient.LatestBlockhash(tests.Context(t))
@@ -575,8 +575,8 @@ NewBlockHash:
 		}
 	}
 
-	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), "test_success_2", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
-	require.Error(t, testChain.txm.Enqueue(tests.Context(t), "test_invalidSigner", createMsgWithTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL))) // cannot sign tx before enqueuing
+	require.NoError(t, testChain.txm.Enqueue(tests.Context(t), createMsgWithTx("test_success_2", pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
+	require.Error(t, testChain.txm.Enqueue(tests.Context(t), createMsgWithTx("test_invalidSigner", pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL))) // cannot sign tx before enqueuing
 
 	// wait for all txes to finish
 	ctx, cancel := context.WithCancel(tests.Context(t))

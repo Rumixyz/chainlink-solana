@@ -1,5 +1,3 @@
-//go:build integration
-
 package txm
 
 import (
@@ -83,7 +81,7 @@ func TestTxm_Integration(t *testing.T) {
 			// already started
 			assert.Error(t, txm.Start(ctx))
 
-			createMsgWithTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *PendingTx {
+			createMsgWithTx := func(accountID string, signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *PendingTx {
 				// create transfer tx
 				assert.NoError(t, err)
 				tx, err := solana.NewTransaction(
@@ -98,20 +96,20 @@ func TestTxm_Integration(t *testing.T) {
 					solana.TransactionPayer(signer),
 				)
 				require.NoError(t, err)
-				return &PendingTx{Tx: *tx}
+				return &PendingTx{Tx: *tx, AccountID: accountID}
 			}
 
 			// enqueue txs (must pass to move on to load test)
-			require.NoError(t, txm.Enqueue(ctx, "test_success_0", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
-			require.Error(t, txm.Enqueue(ctx, "test_invalidSigner", createMsgWithTx(pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL))) // cannot sign tx before enqueuing
-			require.NoError(t, txm.Enqueue(ctx, "test_invalidReceiver", createMsgWithTx(pubKey, pubKey, solana.PublicKey{}, solana.LAMPORTS_PER_SOL)))
+			require.NoError(t, txm.Enqueue(ctx, createMsgWithTx("test_success_0", pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
+			require.Error(t, txm.Enqueue(ctx, createMsgWithTx("test_invalidSigner", pubKeyReceiver, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL))) // cannot sign tx before enqueuing
+			require.NoError(t, txm.Enqueue(ctx, createMsgWithTx("test_invalidReceiver", pubKey, pubKey, solana.PublicKey{}, solana.LAMPORTS_PER_SOL)))
 			time.Sleep(500 * time.Millisecond) // pause 0.5s for new blockhash
-			require.NoError(t, txm.Enqueue(ctx, "test_success_1", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
-			require.NoError(t, txm.Enqueue(ctx, "test_txFail", createMsgWithTx(pubKey, pubKey, pubKeyReceiver, 1000*solana.LAMPORTS_PER_SOL)))
+			require.NoError(t, txm.Enqueue(ctx, createMsgWithTx("test_success_1", pubKey, pubKey, pubKeyReceiver, solana.LAMPORTS_PER_SOL)))
+			require.NoError(t, txm.Enqueue(ctx, createMsgWithTx("test_txFail", pubKey, pubKey, pubKeyReceiver, 1000*solana.LAMPORTS_PER_SOL)))
 
 			// load test: try to overload txs, confirm, or simulation
 			for i := 0; i < 1000; i++ {
-				assert.NoError(t, txm.Enqueue(ctx, fmt.Sprintf("load_%d", i), createMsgWithTx(loadTestKey.PublicKey(), loadTestKey.PublicKey(), loadTestKey.PublicKey(), uint64(i))))
+				assert.NoError(t, txm.Enqueue(ctx, createMsgWithTx(fmt.Sprintf("load_%d", i), loadTestKey.PublicKey(), loadTestKey.PublicKey(), loadTestKey.PublicKey(), uint64(i))))
 				time.Sleep(10 * time.Millisecond) // ~100 txs per second (note: have run 5ms delays for ~200tx/s succesfully)
 			}
 

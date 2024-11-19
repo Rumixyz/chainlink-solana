@@ -557,7 +557,8 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 	}
 
 	msg := &txm.PendingTx{
-		Tx: *tx,
+		Tx:        *tx,
+		AccountID: "",
 		// To perform balanceCheck we need a blockhash.
 		// Storing values to perform balanceCheck within sendWithRetry txm function before sending tx.
 		BalanceCheck: balanceCheck,
@@ -566,7 +567,7 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 	}
 
 	chainTxm := c.TxManager()
-	err = chainTxm.Enqueue(ctx, "", msg,
+	err = chainTxm.Enqueue(ctx, msg,
 		txm.SetComputeUnitLimit(500), // reduce from default 200K limit - should only take 450 compute units
 		// no fee bumping and no additional fee - makes validating balance accurate
 		txm.SetComputeUnitPriceMax(0),

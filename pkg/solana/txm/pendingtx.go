@@ -48,6 +48,7 @@ type PendingTxContext interface {
 
 type PendingTx struct {
 	Tx                   solana.Transaction
+	AccountID            string
 	cfg                  TxConfig
 	signatures           []solana.Signature
 	UUID                 string

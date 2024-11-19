@@ -657,7 +657,7 @@ func (txm *Txm) reap() {
 }
 
 // Enqueue enqueues a msg destined for the solana chain.
-func (txm *Txm) Enqueue(ctx context.Context, accountID string, msg *PendingTx, txCfgs ...SetTxConfig) error {
+func (txm *Txm) Enqueue(ctx context.Context, msg *PendingTx, txCfgs ...SetTxConfig) error {
 	if err := txm.Ready(); err != nil {
 		return fmt.Errorf("error in soltxm.Enqueue: %w", err)
 	}
@@ -709,8 +709,8 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, msg *PendingTx, t
 	select {
 	case txm.chSend <- *msg:
 	default:
-		txm.lggr.Errorw("failed to enqueue tx", "queueFull", len(txm.chSend) == MaxQueueLen, "tx", msg)
-		return fmt.Errorf("failed to enqueue transaction for %s", accountID)
+		txm.lggr.Errorw("failed to enqeue tx", "queueFull", len(txm.chSend) == MaxQueueLen, "tx", msg)
+		return fmt.Errorf("failed to enqueue transaction for %s", msg.AccountID)
 	}
 	return nil
 }

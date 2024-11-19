@@ -74,12 +74,13 @@ func (c *Transmitter) Transmit(
 	}
 
 	msg := &txm.PendingTx{
-		Tx: *tx,
+		Tx:        *tx,
+		AccountID: c.stateID.String(),
 	}
 
 	// pass transmit payload to tx manager queue
 	c.lggr.Debugf("Queuing transmit tx: state (%s) + transmissions (%s)", c.stateID.String(), c.transmissionsID.String())
-	if err = c.txManager.Enqueue(ctx, c.stateID.String(), msg); err != nil {
+	if err = c.txManager.Enqueue(ctx, msg); err != nil {
 		return fmt.Errorf("error on Transmit.txManager.Enqueue: %w", err)
 	}
 	return nil

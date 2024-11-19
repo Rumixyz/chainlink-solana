@@ -17,7 +17,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqltest"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/sqltest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

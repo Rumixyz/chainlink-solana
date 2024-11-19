@@ -464,6 +464,9 @@ func (txm *Txm) confirm() {
 				txm.lggr.Errorw("failed to get client in txm.confirm", "error", err)
 				return
 			}
+			if txm.cfg.TxExpirationRebroadcast() {
+				txm.rebroadcastExpiredTxs(ctx, client)
+			}
 			txm.processConfirmations(ctx, client, sigs)
 		}
 		tick = time.After(utils.WithJitter(txm.cfg.ConfirmPollPeriod()))
@@ -495,6 +498,46 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 		}(i)
 	}
 	wg.Wait() // wait for processing to finish
+}
+
+func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
+	// Get current slot height to check if txes have expired when compared against their lastValidBlockHeight
+	currHeight, err := client.SlotHeight(ctx)
+	if err != nil {
+		txm.lggr.Errorw("failed to get current slot height", "error", err)
+		return
+	}
+
+	// Rebroadcast all expired txes
+	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
+		txm.lggr.Infow("transaction expired, rebroadcasting", "id", tx.UUID, "signature", tx.signatures)
+		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
+			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.UUID)
+			continue
+		}
+		_, err := txm.txs.Remove(tx.signatures[0]) // only picking signature[0] because remove func removes all remaining signatures.
+		if err != nil {
+			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.UUID, "error", err)
+			continue
+		}
+
+		rebroadcastTx := &PendingTx{
+			Tx:           tx.Tx,
+			UUID:         tx.UUID, // same id to handle case where set by caller. Previous ID has already been removed.
+			BalanceCheck: tx.BalanceCheck,
+			Amount:       tx.Amount,
+			From:         tx.From,
+		}
+
+		// Re-enqueue the transaction for rebroadcasting
+		err = txm.Enqueue(ctx, rebroadcastTx)
+		if err != nil {
+			txm.lggr.Errorw("failed to enqueue rebroadcast transaction", "id", tx.UUID, "error", err)
+			continue
+		}
+
+		txm.lggr.Infow("rebroadcast transaction enqueued", "id", tx.UUID)
+	}
 }
 
 func (txm *Txm) processSignatureStatuses(sigs []solanaGo.Signature, res []*rpc.SignatureStatusesResult) {

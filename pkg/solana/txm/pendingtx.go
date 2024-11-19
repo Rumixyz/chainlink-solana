@@ -28,6 +28,8 @@ type PendingTxContext interface {
 	Remove(sig solana.Signature) (string, error)
 	// ListAll returns all of the signatures being tracked for all transactions not yet finalized or errored
 	ListAll() []solana.Signature
+	// ListAllExpiredBroadcastedTxs returns all the expired broadcasted that are in broadcasted state and have expired for given slot height.
+	ListAllExpiredBroadcastedTxs(currHeight uint64) []PendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -214,6 +216,19 @@ func (c *pendingTxContext) ListAll() []solana.Signature {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return maps.Keys(c.sigToID)
+}
+
+// ListAllExpiredBroadcastedTxs returns all the expired broadcasted that are in broadcasted state and have expired for given slot height.
+func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []PendingTx {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	broadcastedTxes := make([]PendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
+	for _, tx := range c.broadcastedProcessedTxs {
+		if tx.state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+			broadcastedTxes = append(broadcastedTxes, tx)
+		}
+	}
+	return broadcastedTxes
 }
 
 // Expired returns if the timeout for trying to confirm a signature has been reached
@@ -602,6 +617,10 @@ func (c *pendingTxContextWithProm) ListAll() []solana.Signature {
 	sigs := c.pendingTx.ListAll()
 	promSolTxmPendingTxs.WithLabelValues(c.chainID).Set(float64(len(sigs)))
 	return sigs
+}
+
+func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currHeight uint64) []PendingTx {
+	return c.pendingTx.ListAllExpiredBroadcastedTxs(currHeight)
 }
 
 func (c *pendingTxContextWithProm) Expired(sig solana.Signature, lifespan time.Duration) bool {

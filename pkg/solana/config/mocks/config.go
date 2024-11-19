@@ -762,31 +762,22 @@ func (_m *Config) TxConfirmTimeout() time.Duration {
 	return r0
 }
 
-// Config_TxConfirmTimeout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TxConfirmTimeout'
-type Config_TxConfirmTimeout_Call struct {
-	*mock.Call
-}
+// TxExpirationRebroadcast provides a mock function with given fields:
+func (_m *Config) TxExpirationRebroadcast() bool {
+	ret := _m.Called()
 
-// TxConfirmTimeout is a helper method to define mock.On call
-func (_e *Config_Expecter) TxConfirmTimeout() *Config_TxConfirmTimeout_Call {
-	return &Config_TxConfirmTimeout_Call{Call: _e.mock.On("TxConfirmTimeout")}
-}
+	if len(ret) == 0 {
+		panic("no return value specified for TxExpirationRebroadcast")
+	}
 
-func (_c *Config_TxConfirmTimeout_Call) Run(run func()) *Config_TxConfirmTimeout_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
 
-func (_c *Config_TxConfirmTimeout_Call) Return(_a0 time.Duration) *Config_TxConfirmTimeout_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Config_TxConfirmTimeout_Call) RunAndReturn(run func() time.Duration) *Config_TxConfirmTimeout_Call {
-	_c.Call.Return(run)
-	return _c
+	return r0
 }
 
 // TxRetentionTimeout provides a mock function with given fields:

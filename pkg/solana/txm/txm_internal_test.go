@@ -1,3 +1,5 @@
+//go:build integration
+
 package txm
 
 import (
@@ -770,6 +772,7 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
 	blockhash, err := solana.HashFromBase58("blockhash")
+	require.NoError(t, err)
 	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 		Value: &rpc.LatestBlockhashResult{
 			Blockhash:            blockhash,

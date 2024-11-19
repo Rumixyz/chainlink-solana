@@ -1,3 +1,5 @@
+//go:build integration
+
 package txm
 
 import (
@@ -84,7 +86,7 @@ func TestTxm_Integration(t *testing.T) {
 			createMsgWithTx := func(accountID string, signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *PendingTx {
 				// create transfer tx
 				assert.NoError(t, err)
-				tx, err := solana.NewTransaction(
+				tx, txErr := solana.NewTransaction(
 					[]solana.Instruction{
 						system.NewTransferInstruction(
 							amt,
@@ -95,7 +97,7 @@ func TestTxm_Integration(t *testing.T) {
 					solana.Hash{},
 					solana.TransactionPayer(signer),
 				)
-				require.NoError(t, err)
+				require.NoError(t, txErr)
 				return &PendingTx{Tx: *tx, AccountID: accountID}
 			}
 
@@ -110,7 +112,7 @@ func TestTxm_Integration(t *testing.T) {
 			// load test: try to overload txs, confirm, or simulation
 			for i := 0; i < 1000; i++ {
 				assert.NoError(t, txm.Enqueue(ctx, createMsgWithTx(fmt.Sprintf("load_%d", i), loadTestKey.PublicKey(), loadTestKey.PublicKey(), loadTestKey.PublicKey(), uint64(i))))
-				time.Sleep(10 * time.Millisecond) // ~100 txs per second (note: have run 5ms delays for ~200tx/s succesfully)
+				time.Sleep(10 * time.Millisecond) // ~100 txs per second (note: have run 5ms delays for ~200tx/s successfully)
 			}
 
 			// check to make sure all txs are closed out from inflight list (longest should last MaxConfirmTimeout)

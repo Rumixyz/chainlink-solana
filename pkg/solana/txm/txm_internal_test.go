@@ -126,11 +126,8 @@ func TestTxm(t *testing.T) {
 			cfg := config.NewDefault()
 			cfg.Chain.FeeEstimatorMode = &estimator
 			mc := mocks.NewReaderWriter(t)
-			blockhash, err := generateRandomHash()
-			require.NoError(t, err)
 			mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 				Value: &rpc.LatestBlockhashResult{
-					Blockhash:            blockhash,
 					LastValidBlockHeight: uint64(2000),
 				},
 			}, nil)
@@ -772,11 +769,8 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
-	blockhash, err := generateRandomHash()
-	require.NoError(t, err)
 	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 		Value: &rpc.LatestBlockhashResult{
-			Blockhash:            blockhash,
 			LastValidBlockHeight: uint64(2000),
 		},
 	}, nil)
@@ -980,11 +974,8 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality or error
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
-	blockhash, err := generateRandomHash()
-	require.NoError(t, err)
 	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 		Value: &rpc.LatestBlockhashResult{
-			Blockhash:            blockhash,
 			LastValidBlockHeight: uint64(2000),
 		},
 	}, nil)
@@ -1118,11 +1109,8 @@ func TestTxm_Enqueue(t *testing.T) {
 	lggr := logger.Test(t)
 	cfg := config.NewDefault()
 	mc := mocks.NewReaderWriter(t)
-	blockhash, err := generateRandomHash()
-	require.NoError(t, err)
 	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 		Value: &rpc.LatestBlockhashResult{
-			Blockhash:            blockhash,
 			LastValidBlockHeight: uint64(2000),
 		},
 	}, nil)

@@ -1,7 +1,6 @@
 package txm
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"sort"
@@ -222,20 +221,4 @@ func SetEstimateComputeUnitLimit(v bool) SetTxConfig {
 	return func(cfg *TxConfig) {
 		cfg.EstimateComputeUnitLimit = v
 	}
-}
-
-// generateRandomHash generates a random 32-byte hash.
-func generateRandomHash() (solana.Hash, error) {
-	// Generate 32 random bytes
-	randomBytes := make([]byte, 32)
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		return solana.Hash{}, err
-	}
-
-	// Convert the random bytes to a solana.Hash
-	var hash solana.Hash
-	copy(hash[:], randomBytes)
-
-	return hash, nil
 }

@@ -63,9 +63,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	// assemble minimal tx for testing retry
 	msg := NewTestMsg()
-	blockhash, err := generateRandomHash()
-	require.NoError(t, err)
-
 	testRunner := func(t *testing.T, client solanaClient.ReaderWriter) {
 		// build minimal txm
 		loader := utils.NewLazyLoad(func() (solanaClient.ReaderWriter, error) {
@@ -122,7 +119,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		)
 		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 			Value: &rpc.LatestBlockhashResult{
-				Blockhash:            blockhash,
 				LastValidBlockHeight: uint64(2000),
 			},
 		}, nil)
@@ -164,7 +160,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		)
 		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 			Value: &rpc.LatestBlockhashResult{
-				Blockhash:            blockhash,
 				LastValidBlockHeight: uint64(2000),
 			},
 		}, nil)
@@ -217,7 +212,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		)
 		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 			Value: &rpc.LatestBlockhashResult{
-				Blockhash:            blockhash,
 				LastValidBlockHeight: uint64(2000),
 			},
 		}, nil)
@@ -257,7 +251,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		client.On("SendTx", mock.Anything, &msg3.Tx).Return(solanaGo.Signature{4}, nil)
 		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
 			Value: &rpc.LatestBlockhashResult{
-				Blockhash:            blockhash,
 				LastValidBlockHeight: uint64(2000),
 			},
 		}, nil)

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
@@ -64,7 +63,7 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	// assemble minimal tx for testing retry
 	msg := NewTestMsg()
-	blockhash, err := solana.HashFromBase58("hash")
+	blockhash, err := generateRandomHash()
 	require.NoError(t, err)
 
 	testRunner := func(t *testing.T, client solanaClient.ReaderWriter) {

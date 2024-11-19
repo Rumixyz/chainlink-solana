@@ -1,6 +1,7 @@
 package txm
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"sort"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/mr-tron/base58"
 )
 
 type TxState int
@@ -221,4 +223,19 @@ func SetEstimateComputeUnitLimit(v bool) SetTxConfig {
 	return func(cfg *TxConfig) {
 		cfg.EstimateComputeUnitLimit = v
 	}
+}
+
+func generateRandomHash() (solana.Hash, error) {
+	// Generate 32 random bytes
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return solana.Hash{}, err
+	}
+
+	// Encode the random bytes in base58
+	base58Hash := base58.Encode(randomBytes)
+
+	// Convert the base58 string to a solana.Hash
+	return solana.HashFromBase58(base58Hash)
 }

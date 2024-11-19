@@ -10,7 +10,6 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/mr-tron/base58"
 )
 
 type TxState int
@@ -225,6 +224,7 @@ func SetEstimateComputeUnitLimit(v bool) SetTxConfig {
 	}
 }
 
+// generateRandomHash generates a random 32-byte hash.
 func generateRandomHash() (solana.Hash, error) {
 	// Generate 32 random bytes
 	randomBytes := make([]byte, 32)
@@ -233,9 +233,9 @@ func generateRandomHash() (solana.Hash, error) {
 		return solana.Hash{}, err
 	}
 
-	// Encode the random bytes in base58
-	base58Hash := base58.Encode(randomBytes)
+	// Convert the random bytes to a solana.Hash
+	var hash solana.Hash
+	copy(hash[:], randomBytes)
 
-	// Convert the base58 string to a solana.Hash
-	return solana.HashFromBase58(base58Hash)
+	return hash, nil
 }

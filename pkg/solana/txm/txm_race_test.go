@@ -64,7 +64,8 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	// assemble minimal tx for testing retry
 	msg := NewTestMsg()
-	blockhash, _ := solana.HashFromBase58("blockhash")
+	blockhash, err := solana.HashFromBase58("hash")
+	require.NoError(t, err)
 
 	testRunner := func(t *testing.T, client solanaClient.ReaderWriter) {
 		// build minimal txm

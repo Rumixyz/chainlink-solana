@@ -1189,3 +1189,129 @@ func TestTxm_Enqueue(t *testing.T) {
 		})
 	}
 }
+
+func addSigAndLimitToTx(t *testing.T, keystore SimpleKeystore, pubkey solana.PublicKey, tx solana.Transaction, limit fees.ComputeUnitLimit) *solana.Transaction {
+	txCopy := tx
+	// sign tx
+	txMsg, err := tx.Message.MarshalBinary()
+	require.NoError(t, err)
+	sigBytes, err := keystore.Sign(context.Background(), pubkey.String(), txMsg)
+	require.NoError(t, err)
+	var sig [64]byte
+	copy(sig[:], sigBytes)
+	txCopy.Signatures = append(txCopy.Signatures, sig)
+	require.NoError(t, fees.SetComputeUnitLimit(&txCopy, limit))
+	return &txCopy
+}
+
+func TestTxm_ExpirationRebroadcast(t *testing.T) {
+	t.Parallel()
+
+	// Set up configurations
+	estimator := "fixed"
+	id := "mocknet-" + estimator + "-" + uuid.NewString()
+	t.Logf("Starting new iteration: %s", id)
+
+	ctx := tests.Context(t)
+	lggr := logger.Test(t)
+	cfg := config.NewDefault()
+	cfg.Chain.FeeEstimatorMode = &estimator
+
+	// Enable TxExpirationRebroadcast
+	txExpirationRebroadcast := true
+	cfg.Chain.TxExpirationRebroadcast = &txExpirationRebroadcast
+	cfg.Chain.TxConfirmTimeout = relayconfig.MustNewDuration(5 * time.Second)
+	// Enable retention timeout to keep transactions after finality so we can check.
+	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(15 * time.Second)
+
+	mc := mocks.NewReaderWriter(t)
+
+	// Set up LatestBlockhash to return different LastValidBlockHeight values
+	latestBlockhashCallCount := 0
+	mc.On("LatestBlockhash", mock.Anything).Return(func(_ context.Context) (*rpc.GetLatestBlockhashResult, error) {
+		latestBlockhashCallCount++
+		if latestBlockhashCallCount == 1 {
+			return &rpc.GetLatestBlockhashResult{
+				Value: &rpc.LatestBlockhashResult{
+					LastValidBlockHeight: uint64(1000),
+				},
+			}, nil
+		}
+		return &rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				LastValidBlockHeight: uint64(2000),
+			},
+		}, nil
+	}).Maybe()
+
+	// Set up SlotHeight to return a value greater than the initial LastValidBlockHeight
+	mc.On("SlotHeight", mock.Anything).Return(uint64(1500), nil).Maybe()
+	mkey := keyMocks.NewSimpleKeystore(t)
+	mkey.On("Sign", mock.Anything, mock.Anything, mock.Anything).Return([]byte{}, nil)
+	loader := utils.NewLazyLoad(func() (client.ReaderWriter, error) { return mc, nil })
+	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
+	require.NoError(t, txm.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, txm.Close()) })
+
+	sig1 := randomSignature(t)
+	mc.On("SendTx", mock.Anything, mock.Anything).Return(sig1, nil).Maybe()
+	mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
+	statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
+	mc.On("SignatureStatuses", mock.Anything, mock.AnythingOfType("[]solana.Signature")).Return(
+		func(_ context.Context, sigs []solana.Signature) (out []*rpc.SignatureStatusesResult) {
+			for i := range sigs {
+				get, exists := statuses[sigs[i]]
+				if !exists {
+					out = append(out, nil)
+					continue
+				}
+				out = append(out, get())
+			}
+			return out
+		}, nil,
+	)
+
+	nowTs := time.Now()
+	sigStatusCallCount := 0
+	var wg sync.WaitGroup
+	wg.Add(1)
+	statuses[sig1] = func() *rpc.SignatureStatusesResult {
+		// If time is less than confirm timeout, return nil. This is when tx should be rebroadcasted
+		if time.Since(nowTs) < cfg.TxConfirmTimeout()-2*time.Second {
+			return nil
+		} else {
+			sigStatusCallCount++
+			if sigStatusCallCount == 1 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
+				}
+			} else if sigStatusCallCount == 2 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
+				}
+			} else {
+				wg.Done()
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusFinalized,
+				}
+			}
+		}
+	}
+
+	// Enqueue the transaction
+	tx, _ := getTx(t, 0, mkey)
+	expiredTxID := "test"
+	assert.NoError(t, txm.Enqueue(ctx, &PendingTx{Tx: *tx, UUID: expiredTxID, AccountID: t.Name()}, SetTimeout(10*time.Second)))
+	wg.Wait() // Wait for the transaction to be finalized
+
+	// Check that transaction for expiredTxID is not stored in memory
+	status, err := txm.GetTransactionStatus(ctx, expiredTxID)
+	require.Error(t, err)
+	require.Equal(t, types.Unknown, status)
+
+	// Check the transaction status for rebroadcasted txID has been finalized
+	rebroadcastedTxID := expiredTxID + "#1"
+	status, err = txm.GetTransactionStatus(ctx, rebroadcastedTxID)
+	require.NoError(t, err)
+	require.Equal(t, types.Finalized, status)
+}

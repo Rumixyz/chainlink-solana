@@ -54,6 +54,8 @@ type PendingTx struct {
 	cfg                  TxConfig
 	signatures           []solana.Signature
 	UUID                 string
+	IDSetByCaller        bool
+	rebroadcastCount     int
 	createTs             time.Time
 	retentionTs          time.Time
 	state                TxState

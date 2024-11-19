@@ -521,22 +521,31 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			continue
 		}
 
-		rebroadcastTx := &PendingTx{
-			Tx:           tx.Tx,
-			UUID:         tx.UUID, // same id to handle case where set by caller. Previous ID has already been removed.
-			BalanceCheck: tx.BalanceCheck,
-			Amount:       tx.Amount,
-			From:         tx.From,
+		rebroadcastTx := PendingTx{
+			Tx:               tx.Tx,
+			BalanceCheck:     tx.BalanceCheck,
+			Amount:           tx.Amount,
+			From:             tx.From,
+			IDSetByCaller:    tx.IDSetByCaller,
+			rebroadcastCount: tx.rebroadcastCount + 1,
 		}
 
-		// Re-enqueue the transaction for rebroadcasting
-		err = txm.Enqueue(ctx, rebroadcastTx)
+		// If the ID was set by the caller, we should keep it similar.
+		if tx.IDSetByCaller {
+			// Append #tx.rebroadcast count to the end of the ID.
+			rebroadcastTx.UUID = fmt.Sprintf("%s#%d", tx.UUID, rebroadcastTx.rebroadcastCount)
+		} else {
+			rebroadcastTx.UUID = uuid.New().String()
+		}
+
+		// Attempt to rebroadcast the transaction with sendWithRetry
+		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
 		if err != nil {
-			txm.lggr.Errorw("failed to enqueue rebroadcast transaction", "id", tx.UUID, "error", err)
+			txm.lggr.Errorw("failed to send rebroadcast transaction", "error", err)
 			continue
 		}
 
-		txm.lggr.Infow("rebroadcast transaction enqueued", "id", tx.UUID)
+		txm.lggr.Infow("rebroadcast transaction sent", "previous id", tx.UUID, "new id", rebroadcastTx.UUID)
 	}
 }
 
@@ -744,9 +753,11 @@ func (txm *Txm) Enqueue(ctx context.Context, msg *PendingTx, txCfgs ...SetTxConf
 	}
 
 	msg.cfg = cfg
-	// If ID was not set by caller, create one.
 	if msg.UUID == "" {
+		// If ID was not set by caller, create one.
 		msg.UUID = uuid.New().String()
+	} else {
+		msg.IDSetByCaller = true
 	}
 
 	select {

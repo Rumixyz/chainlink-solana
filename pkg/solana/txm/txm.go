@@ -564,6 +564,12 @@ func (txm *Txm) handleNotFoundSignatureStatus(sig solanaGo.Signature) {
 }
 
 func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
+	// if error is BlockhashNotFound and txExpirationRebroadcast is enabled, skip error handling.
+	// We want to rebroadcast rather than drop tx if blockhash not found and txExpirationRebroadcast is enabled.
+	if status.Err != nil && status.Err == client.ErrBlockhashNotFound && txm.cfg.TxExpirationRebroadcast() {
+		return
+	}
+
 	id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailRevert)
 	if err != nil {
 		txm.lggr.Infow("failed to mark transaction as errored", "id", id, "signature", sig, "error", err)

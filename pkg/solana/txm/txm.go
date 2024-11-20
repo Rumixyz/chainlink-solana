@@ -191,10 +191,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, err
 	}
 
-	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, msg.cfg.Timeout)
-
-	// Send initial transaction
 	sig, err := txm.sendInitialTx(ctx, initTx, msg, cancel)
 	if err != nil {
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, err
@@ -207,7 +204,6 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save initial signature in signature list: %w", initSetErr)
 	}
 
-	// Start retry routine
 	// pass in copy of msg (to build new tx with bumped fee) and broadcasted tx == initTx (to retry tx without bumping)
 	txm.done.Add(1)
 	go func() {
@@ -226,8 +222,6 @@ func (txm *Txm) prepareTransaction(ctx context.Context, msg *pendingTx) error {
 	if err != nil {
 		return fmt.Errorf("failed to get client in sendWithRetry: %w", err)
 	}
-
-	// Assign blockhash
 	blockhash, err := client.LatestBlockhash(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get blockhash: %w", err)
@@ -235,7 +229,6 @@ func (txm *Txm) prepareTransaction(ctx context.Context, msg *pendingTx) error {
 	msg.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
 	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
 
-	// Set compute unit limit
 	if msg.cfg.ComputeUnitLimit != 0 {
 		if err := fees.SetComputeUnitLimit(&msg.tx, fees.ComputeUnitLimit(msg.cfg.ComputeUnitLimit)); err != nil {
 			return fmt.Errorf("failed to add compute unit limit instruction: %w", err)
@@ -439,11 +432,10 @@ func (txm *Txm) confirm() {
 				txm.lggr.Errorw("failed to get client in txm.confirm", "error", err)
 				break
 			}
-
+			txm.processConfirmations(ctx, client, sigs)
 			if txm.cfg.TxExpirationRebroadcast() {
 				txm.rebroadcastExpiredTxs(ctx, client)
 			}
-			txm.processConfirmations(ctx, client, sigs)
 		}
 		tick = time.After(utils.WithJitter(txm.cfg.ConfirmPollPeriod()))
 	}
@@ -504,7 +496,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			rebroadcastCount: tx.rebroadcastCount + 1,
 		}
 
-		// call sendWithRetry directly
+		// call sendWithRetry directly to avoid enqueuing
 		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
 		if err != nil {
 			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", err)
@@ -560,9 +552,8 @@ func (txm *Txm) processSignatureStatuses(sigs []solanaGo.Signature, res []*rpc.S
 
 func (txm *Txm) handleNotFoundSignatureStatus(sig solanaGo.Signature) {
 	txm.lggr.Debugw("tx state: not found", "signature", sig)
-
 	// check confirm timeout exceeded
-	if txm.txs.Expired(sig, txm.cfg.TxConfirmTimeout()) {
+	if txm.cfg.TxConfirmTimeout() != 0*time.Second && txm.txs.Expired(sig, txm.cfg.TxConfirmTimeout()) {
 		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailDrop)
 		if err != nil {
 			txm.lggr.Infow("failed to mark transaction as errored", "id", id, "signature", sig, "timeoutSeconds", txm.cfg.TxConfirmTimeout(), "error", err)

@@ -1277,10 +1277,11 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	statuses[sig1] = func() *rpc.SignatureStatusesResult {
-		// If time is less than confirm timeout, return nil. This is when tx should be rebroadcasted
+		// first transaction should be rebroadcasted.
 		if time.Since(nowTs) < cfg.TxConfirmTimeout()-2*time.Second {
 			return nil
 		} else {
+			// second transaction should reach finalization.
 			sigStatusCallCount++
 			if sigStatusCallCount == 1 {
 				return &rpc.SignatureStatusesResult{
@@ -1299,20 +1300,17 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		}
 	}
 
-	// Enqueue the transaction
 	tx, _ := getTx(t, 0, mkey)
-	expiredTxID := "test"
-	assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &expiredTxID), SetTimeout(10*time.Second))
-	wg.Wait() // Wait for the transaction to be finalized
+	txID := "test"
+	assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID), SetTimeout(10*time.Second))
+	wg.Wait()
+	time.Sleep(2 * time.Second) // Sleep to allow for rebroadcasting
 
-	// Check that transaction for expiredTxID is not stored in memory
-	status, err := txm.GetTransactionStatus(ctx, expiredTxID)
-	require.Error(t, err)
-	require.Equal(t, types.Unknown, status)
-
-	// Check the transaction status for rebroadcasted txID has been finalized
-	rebroadcastedTxID := expiredTxID + "#1"
-	status, err = txm.GetTransactionStatus(ctx, rebroadcastedTxID)
+	// Check that transaction for txID has been finalized and rebroadcasted
+	status, err := txm.GetTransactionStatus(ctx, txID)
 	require.NoError(t, err)
 	require.Equal(t, types.Finalized, status)
+	rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
+	require.NoError(t, err)
+	require.Equal(t, 1, rebroadcastCount)
 }

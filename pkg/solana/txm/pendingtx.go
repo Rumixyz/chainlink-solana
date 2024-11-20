@@ -28,7 +28,7 @@ type PendingTxContext interface {
 	Remove(sig solana.Signature) (string, error)
 	// ListAll returns all of the signatures being tracked for all transactions not yet finalized or errored
 	ListAll() []solana.Signature
-	// ListAllExpiredBroadcastedTxs returns all the expired broadcasted that are in broadcasted state and have expired for given slot height.
+	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
 	ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
@@ -45,7 +45,9 @@ type PendingTxContext interface {
 	// GetTxState returns the transaction state for the provided ID if it exists
 	GetTxState(id string) (TxState, error)
 	// TrimFinalizedErroredTxs removes transactions that have reached their retention time
-	TrimFinalizedErroredTxs() int
+	TrimFinalizedErroredTxs()
+	// GetTxRebroadcastCount returns the number of times a transaction has been rebroadcasted if found.
+	GetTxRebroadcastCount(id string) (int, error)
 }
 
 type pendingTx struct {
@@ -561,6 +563,22 @@ func (c *pendingTxContext) withWriteLock(fn func() (string, error)) (string, err
 	return fn()
 }
 
+// GetTxRebroadcastCount returns the number of times a transaction has been rebroadcasted if found.
+func (c pendingTxContext) GetTxRebroadcastCount(id string) (int, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if tx, exists := c.broadcastedProcessedTxs[id]; exists {
+		return tx.rebroadcastCount, nil
+	}
+	if tx, exists := c.confirmedTxs[id]; exists {
+		return tx.rebroadcastCount, nil
+	}
+	if tx, exists := c.finalizedErroredTxs[id]; exists {
+		return tx.rebroadcastCount, nil
+	}
+	return 0, fmt.Errorf("failed to find transaction for id: %s", id)
+}
+
 var _ PendingTxContext = &pendingTxContextWithProm{}
 
 type pendingTxContextWithProm struct {
@@ -672,6 +690,10 @@ func (c *pendingTxContextWithProm) GetTxState(id string) (TxState, error) {
 	return c.pendingTx.GetTxState(id)
 }
 
-func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() int {
-	return c.pendingTx.TrimFinalizedErroredTxs()
+func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() {
+	c.pendingTx.TrimFinalizedErroredTxs()
+}
+
+func (c *pendingTxContextWithProm) GetTxRebroadcastCount(id string) (int, error) {
+	return c.pendingTx.GetTxRebroadcastCount(id)
 }

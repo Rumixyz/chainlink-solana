@@ -3,6 +3,7 @@ package solana
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gagliardetto/solana-go"
@@ -10,8 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
-
-	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 )
 
 var _ types.ContractTransmitter = (*Transmitter)(nil)
@@ -31,6 +30,19 @@ func (c *Transmitter) Transmit(
 	report types.Report,
 	sigs []types.AttributedOnchainSignature,
 ) error {
+	reader, err := c.getReader()
+	if err != nil {
+		return fmt.Errorf("error on Transmit.Reader: %w", err)
+	}
+
+	blockhash, err := reader.LatestBlockhash(ctx)
+	if err != nil {
+		return fmt.Errorf("error on Transmit.GetRecentBlockhash: %w", err)
+	}
+	if blockhash == nil || blockhash.Value == nil {
+		return errors.New("nil pointer returned from Transmit.GetRecentBlockhash")
+	}
+
 	// Determine store authority
 	seeds := [][]byte{[]byte("store"), c.stateID.Bytes()}
 	storeAuthority, storeNonce, err := solana.FindProgramAddress(seeds, c.programID)
@@ -66,21 +78,16 @@ func (c *Transmitter) Transmit(
 		[]solana.Instruction{
 			solana.NewInstruction(c.programID, accounts, data.Bytes()),
 		},
-		solana.Hash{}, // Will be set within sendWithRetry txm function.
+		blockhash.Value.Blockhash, // Will be override if needed within sendWithRetry txm function.
 		solana.TransactionPayer(c.transmissionSigner),
 	)
 	if err != nil {
 		return fmt.Errorf("error on Transmit.NewTransaction: %w", err)
 	}
 
-	msg := &txm.PendingTx{
-		Tx:        *tx,
-		AccountID: c.stateID.String(),
-	}
-
 	// pass transmit payload to tx manager queue
 	c.lggr.Debugf("Queuing transmit tx: state (%s) + transmissions (%s)", c.stateID.String(), c.transmissionsID.String())
-	if err = c.txManager.Enqueue(ctx, msg); err != nil {
+	if err = c.txManager.Enqueue(ctx, c.stateID.String(), tx, nil); err != nil {
 		return fmt.Errorf("error on Transmit.txManager.Enqueue: %w", err)
 	}
 	return nil

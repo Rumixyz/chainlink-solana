@@ -564,7 +564,7 @@ func (c *pendingTxContext) withWriteLock(fn func() (string, error)) (string, err
 }
 
 // GetTxRebroadcastCount returns the number of times a transaction has been rebroadcasted if found.
-func (c pendingTxContext) GetTxRebroadcastCount(id string) (int, error) {
+func (c *pendingTxContext) GetTxRebroadcastCount(id string) (int, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if tx, exists := c.broadcastedProcessedTxs[id]; exists {

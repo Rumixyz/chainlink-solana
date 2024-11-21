@@ -3,6 +3,7 @@ package utils_test
 import (
 	"testing"
 
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"

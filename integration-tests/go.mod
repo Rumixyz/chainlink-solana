@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-solana/integration-tests
 
-go 1.22.8
+go 1.23
 
 toolchain go1.23.2
 
@@ -17,19 +17,19 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/rs/zerolog v1.33.0
 	github.com/smartcontractkit/chainlink-common v0.3.1-0.20241120190613-262c6d8a55e1
-	github.com/smartcontractkit/chainlink-solana v1.1.1-0.20241118204331-4a69435c5a1f
-	github.com/smartcontractkit/chainlink-testing-framework/lib v1.50.13
-	github.com/smartcontractkit/chainlink-testing-framework/seth v1.50.5
+	github.com/smartcontractkit/chainlink-solana v1.1.1-0.20241120194253-57a2c8e6b048
+	github.com/smartcontractkit/chainlink-testing-framework/lib v1.50.14
+	github.com/smartcontractkit/chainlink-testing-framework/seth v1.50.9
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20241118204830-7a5ad69f4f85
-	github.com/smartcontractkit/chainlink/integration-tests v0.0.0-20241118204830-7a5ad69f4f85
-	github.com/smartcontractkit/chainlink/v2 v2.14.0-mercury-20240807.0.20241118204830-7a5ad69f4f85
+	github.com/smartcontractkit/chainlink/integration-tests v0.0.0-20241121001139-4190467cf784
+	github.com/smartcontractkit/chainlink/v2 v2.14.0-mercury-20240807.0.20241120195829-bd7a1943ad07
 	github.com/smartcontractkit/libocr v0.0.0-20241007185508-adbe57025f12
 	github.com/stretchr/testify v1.9.0
 	github.com/testcontainers/testcontainers-go v0.34.0
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
 	golang.org/x/sync v0.8.0
 	golang.org/x/text v0.19.0
-	gopkg.in/guregu/null.v2 v2.1.2
+	gopkg.in/guregu/null.v4 v4.0.0
 )
 
 require (
@@ -502,7 +502,6 @@ require (
 	google.golang.org/grpc v1.67.1 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
-	gopkg.in/guregu/null.v4 v4.0.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect

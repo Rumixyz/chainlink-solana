@@ -18,7 +18,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/smartcontractkit/chainlink-common v0.3.1-0.20241120190613-262c6d8a55e1
 	github.com/smartcontractkit/chainlink-solana v1.1.1-0.20241120194253-57a2c8e6b048
-	github.com/smartcontractkit/chainlink-testing-framework/lib v1.50.14
+	github.com/smartcontractkit/chainlink-testing-framework/lib v1.50.16
 	github.com/smartcontractkit/chainlink-testing-framework/seth v1.50.9
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20241121001139-4190467cf784
 	github.com/smartcontractkit/chainlink/integration-tests v0.0.0-20241121001139-4190467cf784

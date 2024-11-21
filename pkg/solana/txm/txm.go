@@ -392,6 +392,12 @@ func (txm *Txm) confirm() {
 				break
 			}
 			txm.processConfirmations(ctx, client)
+
+			// In case all txes where confirmed and there's nothing to rebroadcast.
+			// This check saves making 2 RPC calls (slot height + blockhash) when there's nothing to process.
+			if len(txm.txs.ListAllBroadcastedTxs()) == 0 {
+				break
+			}
 			if txm.cfg.TxExpirationRebroadcast() {
 				txm.rebroadcastExpiredTxs(ctx, client)
 			}

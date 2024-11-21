@@ -30,6 +30,8 @@ type PendingTxContext interface {
 	ListAll() []solana.Signature
 	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
 	ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx
+	// ListAllBroadcastedTxs returns all the txes that are in broadcasted state.
+	ListAllBroadcastedTxs() []pendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -217,13 +219,26 @@ func (c *pendingTxContext) ListAll() []solana.Signature {
 	return maps.Keys(c.sigToID)
 }
 
-// ListAllExpiredBroadcastedTxs returns all the expired broadcasted that are in broadcasted state and have expired for given slot height.
+// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
 func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
 	for _, tx := range c.broadcastedProcessedTxs {
 		if tx.state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+			broadcastedTxes = append(broadcastedTxes, tx)
+		}
+	}
+	return broadcastedTxes
+}
+
+// ListAllBroadcastedTxs returns all the txes that are in broadcasted state.
+func (c *pendingTxContext) ListAllBroadcastedTxs() []pendingTx {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
+	for _, tx := range c.broadcastedProcessedTxs {
+		if tx.state == Broadcasted {
 			broadcastedTxes = append(broadcastedTxes, tx)
 		}
 	}
@@ -696,4 +711,8 @@ func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() {
 
 func (c *pendingTxContextWithProm) GetTxRebroadcastCount(id string) (int, error) {
 	return c.pendingTx.GetTxRebroadcastCount(id)
+}
+
+func (c *pendingTxContextWithProm) ListAllBroadcastedTxs() []pendingTx {
+	return c.pendingTx.ListAllBroadcastedTxs()
 }

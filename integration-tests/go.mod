@@ -20,9 +20,9 @@ require (
 	github.com/smartcontractkit/chainlink-solana v1.1.1-0.20241120194253-57a2c8e6b048
 	github.com/smartcontractkit/chainlink-testing-framework/lib v1.50.14
 	github.com/smartcontractkit/chainlink-testing-framework/seth v1.50.9
-	github.com/smartcontractkit/chainlink/deployment v0.0.0-20241118204830-7a5ad69f4f85
+	github.com/smartcontractkit/chainlink/deployment v0.0.0-20241121001139-4190467cf784
 	github.com/smartcontractkit/chainlink/integration-tests v0.0.0-20241121001139-4190467cf784
-	github.com/smartcontractkit/chainlink/v2 v2.14.0-mercury-20240807.0.20241120195829-bd7a1943ad07
+	github.com/smartcontractkit/chainlink/v2 v2.14.0-mercury-20240807.0.20241121001139-4190467cf784
 	github.com/smartcontractkit/libocr v0.0.0-20241007185508-adbe57025f12
 	github.com/stretchr/testify v1.9.0
 	github.com/testcontainers/testcontainers-go v0.34.0
@@ -38,7 +38,7 @@ require (
 	cosmossdk.io/core v0.5.1 // indirect
 	cosmossdk.io/depinject v1.0.0-alpha.4 // indirect
 	cosmossdk.io/errors v1.0.1 // indirect
-	cosmossdk.io/math v1.3.0 // indirect
+	cosmossdk.io/math v1.4.0 // indirect
 	dario.cat/mergo v1.0.1 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect

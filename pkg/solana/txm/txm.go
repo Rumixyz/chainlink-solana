@@ -142,6 +142,10 @@ func (txm *Txm) Start(ctx context.Context) error {
 	})
 }
 
+// run is a goroutine that continuously processes transactions from the chSend channel.
+// It attempts to send each transaction with retry logic and, upon success, enqueues the transaction for simulation.
+// If a transaction fails to send, it logs the error and resets the client to handle potential bad RPCs.
+// The function runs until the chStop channel signals to stop.
 func (txm *Txm) run() {
 	defer txm.done.Done()
 	ctx, cancel := txm.chStop.NewCtx()
@@ -396,8 +400,8 @@ func (txm *Txm) handleRetry(ctx context.Context, msg pendingTx, bump bool, count
 	}
 }
 
-// confirm is a goroutine that polls to confirm implementation
-// cancels the exponential retry once confirmed
+// confirm is a goroutine that continuously polls for transaction confirmations and handles rebroadcasts expired transactions if enabled.
+// The function runs until the chStop channel signals to stop.
 func (txm *Txm) confirm() {
 	defer txm.done.Done()
 	ctx, cancel := txm.chStop.NewCtx()
@@ -599,6 +603,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		// using same id in case it was set by caller and we need to maintain it.
 		_, _, _, err = txm.sendWithRetry(ctx, pendingTx{tx: tx.tx, id: tx.id, rebroadcastCount: tx.rebroadcastCount + 1})
 		if err != nil {
+			// TODO: add prebroadcast error handling when merged https://github.com/smartcontractkit/chainlink-solana/pull/936
 			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", err)
 			continue
 		}

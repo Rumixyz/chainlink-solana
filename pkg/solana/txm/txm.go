@@ -183,23 +183,29 @@ func (txm *Txm) run() {
 // It prepares the transaction, builds and signs it, sends the initial transaction, and starts a retry routine with fee bumping if needed.
 // The function returns the signed transaction, its ID, and the initial signature for use in simulation.
 func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Transaction, string, solanaGo.Signature, error) {
-	// Prepare transaction assigning blockhash and lastValidBlockHeight (for expiration tracking).
-	// If required, it also performs balanceCheck and sets compute unit limit.
-	if err := txm.prepareTransaction(ctx, &msg); err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, err
-	}
-
-	// Build and sign initial transaction setting compute unit price
+	// Build and sign initial transaction setting compute unit price and limit
 	initTx, err := txm.buildTx(ctx, msg, 0)
 	if err != nil {
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, err
 	}
 
+	// Send initial transaction
 	ctx, cancel := context.WithTimeout(ctx, msg.cfg.Timeout)
-	sig, err := txm.sendInitialTx(ctx, initTx, msg, cancel)
+	sig, err := txm.sendTx(ctx, &initTx)
 	if err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, err
+		// Do not retry and exit early if fails
+		cancel()
+		txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailReject) //nolint // no need to check error since only incrementing metric here
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", err)
 	}
+
+	// Store tx signature and cancel function
+	if err := txm.txs.New(msg, sig, cancel); err != nil {
+		cancel() // Cancel context when exiting early
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save tx signature (%s) to inflight txs: %w", sig, err)
+	}
+
+	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
 
 	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
 	sigs := &signatureList{}
@@ -219,31 +225,14 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 	return initTx, msg.id, sig, nil
 }
 
-// prepareTransaction sets blockhash and lastValidBlockHeight which will be used to track expiration.
-// If required, it also performs balanceCheck and sets compute unit limit.
-func (txm *Txm) prepareTransaction(ctx context.Context, msg *pendingTx) error {
-	client, err := txm.client.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get client in sendWithRetry: %w", err)
-	}
-	blockhash, err := client.LatestBlockhash(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get blockhash: %w", err)
-	}
-	msg.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
-
-	if msg.cfg.ComputeUnitLimit != 0 {
-		if err := fees.SetComputeUnitLimit(&msg.tx, fees.ComputeUnitLimit(msg.cfg.ComputeUnitLimit)); err != nil {
-			return fmt.Errorf("failed to add compute unit limit instruction: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // buildTx builds and signs the transaction with the appropriate compute unit price.
 func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (solanaGo.Transaction, error) {
+	// Set compute unit limit if specified
+	if msg.cfg.ComputeUnitLimit != 0 {
+		if err := fees.SetComputeUnitLimit(&msg.tx, fees.ComputeUnitLimit(msg.cfg.ComputeUnitLimit)); err != nil {
+			return solanaGo.Transaction{}, fmt.Errorf("failed to add compute unit limit instruction: %w", err)
+		}
+	}
 	// work with a copy
 	newTx := msg.tx
 
@@ -274,27 +263,6 @@ func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (sol
 	newTx.Signatures = append(newTx.Signatures, finalSig)
 
 	return newTx, nil
-}
-
-// sendInitialTx sends the initial tx and handles any errors that may occur. It also stores the transaction signature and cancellation function.
-func (txm *Txm) sendInitialTx(ctx context.Context, initTx solanaGo.Transaction, msg pendingTx, cancel context.CancelFunc) (solanaGo.Signature, error) {
-	// Send initial transaction
-	sig, err := txm.sendTx(ctx, &initTx)
-	if err != nil {
-		// do not retry and exit early if fails
-		cancel()
-		txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailReject) //nolint // no need to check error since only incrementing metric here
-		return solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", err)
-	}
-
-	// Store tx signature and cancel function
-	if err := txm.txs.New(msg, sig, cancel); err != nil {
-		cancel() // cancel context when exiting early
-		return solanaGo.Signature{}, fmt.Errorf("failed to save tx signature (%s) to inflight txs: %w", sig, err)
-	}
-
-	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
-	return sig, nil
 }
 
 // retryTx contains the logic for retrying the transaction, including exponential backoff and fee bumping.
@@ -413,9 +381,8 @@ func (txm *Txm) confirm() {
 		case <-ctx.Done():
 			return
 		case <-tick:
-			// If no signatures to confirm, we can break loop as there's nothing to process.
-			sigs := txm.txs.ListAll()
-			if len(sigs) == 0 {
+			// If no signatures to confirm and rebroadcast, we can break loop as there's nothing to process.
+			if txm.InflightTxs() == 0 {
 				break
 			}
 
@@ -424,7 +391,7 @@ func (txm *Txm) confirm() {
 				txm.lggr.Errorw("failed to get client in txm.confirm", "error", err)
 				break
 			}
-			txm.processConfirmations(ctx, client, sigs)
+			txm.processConfirmations(ctx, client)
 			if txm.cfg.TxExpirationRebroadcast() {
 				txm.rebroadcastExpiredTxs(ctx, client)
 			}
@@ -437,8 +404,8 @@ func (txm *Txm) confirm() {
 // It splits the signatures into batches, retrieves their statuses with an RPC call, and processes each status accordingly.
 // The function handles transitions, managing expiration, errors, and transitions between different states like broadcasted, processed, confirmed, and finalized.
 // It also determines when to end polling based on the status of each signature cancelling the exponential retry.
-func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter, sigs []solanaGo.Signature) {
-	sigsBatch, err := utils.BatchSplit(sigs, MaxSigsToConfirm)
+func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter) {
+	sigsBatch, err := utils.BatchSplit(txm.txs.ListAll(), MaxSigsToConfirm)
 	if err != nil { // this should never happen
 		txm.lggr.Fatalw("failed to batch signatures", "error", err)
 		return
@@ -586,7 +553,11 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		txm.lggr.Errorw("failed to get current slot height", "error", err)
 		return
 	}
-
+	blockhash, err := client.LatestBlockhash(ctx)
+	if err != nil {
+		txm.lggr.Errorw("failed to get blockhash", "error", err)
+		return
+	}
 	// Rebroadcast all expired txes
 	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
 		txm.lggr.Infow("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
@@ -599,9 +570,17 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
+		// Overwrite blockhash and lastValidBlockHeight with latest values so that the transaction can be rebroadcasted an accepted.
+		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
+		rebroadcastTx := pendingTx{
+			tx:                   tx.tx,
+			id:                   tx.id,
+			rebroadcastCount:     tx.rebroadcastCount + 1,
+			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
+		}
 		// call sendWithRetry directly to avoid enqueuing
 		// using same id in case it was set by caller and we need to maintain it.
-		_, _, _, err = txm.sendWithRetry(ctx, pendingTx{tx: tx.tx, id: tx.id, rebroadcastCount: tx.rebroadcastCount + 1})
+		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
 		if err != nil {
 			// TODO: add prebroadcast error handling when merged https://github.com/smartcontractkit/chainlink-solana/pull/936
 			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", err)
@@ -891,6 +870,7 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 	return
 }
 
+// InflightTxs returns the number of signatures being tracked for all transactions not yet finalized or errored
 func (txm *Txm) InflightTxs() int {
 	return len(txm.txs.ListAll())
 }

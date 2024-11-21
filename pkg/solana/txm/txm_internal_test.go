@@ -126,11 +126,6 @@ func TestTxm(t *testing.T) {
 			cfg := config.NewDefault()
 			cfg.Chain.FeeEstimatorMode = &estimator
 			mc := mocks.NewReaderWriter(t)
-			mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(2000),
-				},
-			}, nil)
 			mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 			mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
@@ -769,11 +764,6 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
-	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-		Value: &rpc.LatestBlockhashResult{
-			LastValidBlockHeight: uint64(2000),
-		},
-	}, nil)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 	mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
@@ -975,11 +965,6 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	// Enable retention timeout to keep transactions after finality or error
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
-	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-		Value: &rpc.LatestBlockhashResult{
-			LastValidBlockHeight: uint64(2000),
-		},
-	}, nil)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
 	mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
@@ -1111,11 +1096,6 @@ func TestTxm_Enqueue(t *testing.T) {
 	lggr := logger.Test(t)
 	cfg := config.NewDefault()
 	mc := mocks.NewReaderWriter(t)
-	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-		Value: &rpc.LatestBlockhashResult{
-			LastValidBlockHeight: uint64(2000),
-		},
-	}, nil)
 	mc.On("SendTx", mock.Anything, mock.Anything).Return(solana.Signature{}, nil).Maybe()
 	mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
 	mc.On("SignatureStatuses", mock.Anything, mock.AnythingOfType("[]solana.Signature")).Return(
@@ -1207,37 +1187,24 @@ func addSigAndLimitToTx(t *testing.T, keystore SimpleKeystore, pubkey solana.Pub
 
 func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	t.Parallel()
-
 	// Set up configurations
 	estimator := "fixed"
 	id := "mocknet-" + estimator + "-" + uuid.NewString()
 	t.Logf("Starting new iteration: %s", id)
-
 	ctx := tests.Context(t)
 	lggr := logger.Test(t)
 	cfg := config.NewDefault()
 	cfg.Chain.FeeEstimatorMode = &estimator
-
-	// Enable TxExpirationRebroadcast
 	txExpirationRebroadcast := true
-	cfg.Chain.TxExpirationRebroadcast = &txExpirationRebroadcast
+	cfg.Chain.TxExpirationRebroadcast = &txExpirationRebroadcast // enable expiration rebroadcast
 	cfg.Chain.TxConfirmTimeout = relayconfig.MustNewDuration(5 * time.Second)
-	// Enable retention timeout to keep transactions after finality so we can check.
-	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(15 * time.Second)
+	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(10 * time.Second) // Enable retention to keep transactions after finality and be able to check.
 
 	mc := mocks.NewReaderWriter(t)
 
-	// Set up LatestBlockhash to return different LastValidBlockHeight values
-	latestBlockhashCallCount := 0
+	// First blockhash is set on sender. Second blockhash (the one returned here) is set on txExpirationRebroadcast before rebroadcasting.
+	// The first one will be invalid as it's initialized in 0 by default. This call will get a valid one greater than slotHeight and go through.
 	mc.On("LatestBlockhash", mock.Anything).Return(func(_ context.Context) (*rpc.GetLatestBlockhashResult, error) {
-		latestBlockhashCallCount++
-		if latestBlockhashCallCount == 1 {
-			return &rpc.GetLatestBlockhashResult{
-				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(1000),
-				},
-			}, nil
-		}
 		return &rpc.GetLatestBlockhashResult{
 			Value: &rpc.LatestBlockhashResult{
 				LastValidBlockHeight: uint64(2000),
@@ -1245,7 +1212,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		}, nil
 	}).Maybe()
 
-	// Set up SlotHeight to return a value greater than the initial LastValidBlockHeight
+	// Set up SlotHeight to return a value greater than 0 so the initial LastValidBlockHeight is invalid.
 	mc.On("SlotHeight", mock.Anything).Return(uint64(1500), nil).Maybe()
 	mkey := keyMocks.NewSimpleKeystore(t)
 	mkey.On("Sign", mock.Anything, mock.Anything, mock.Anything).Return([]byte{}, nil)
@@ -1253,7 +1220,6 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 	require.NoError(t, txm.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
-
 	sig1 := randomSignature(t)
 	mc.On("SendTx", mock.Anything, mock.Anything).Return(sig1, nil).Maybe()
 	mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
@@ -1299,13 +1265,11 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			}
 		}
 	}
-
 	tx, _ := getTx(t, 0, mkey)
 	txID := "test"
-	assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID), SetTimeout(10*time.Second))
+	assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID)) // Will create a expired transaction as lastValidBlockHeight is 0 by default.
 	wg.Wait()
 	time.Sleep(2 * time.Second) // Sleep to allow for rebroadcasting
-
 	// Check that transaction for txID has been finalized and rebroadcasted
 	status, err := txm.GetTransactionStatus(ctx, txID)
 	require.NoError(t, err)

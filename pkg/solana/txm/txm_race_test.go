@@ -9,7 +9,6 @@ import (
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -117,11 +116,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
-		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-			Value: &rpc.LatestBlockhashResult{
-				LastValidBlockHeight: uint64(2000),
-			},
-		}, nil)
 		testRunner(t, client)
 	})
 
@@ -158,11 +152,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
-		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-			Value: &rpc.LatestBlockhashResult{
-				LastValidBlockHeight: uint64(2000),
-			},
-		}, nil)
 		testRunner(t, client)
 	})
 
@@ -210,11 +199,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 			},
 			nil,
 		)
-		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-			Value: &rpc.LatestBlockhashResult{
-				LastValidBlockHeight: uint64(2000),
-			},
-		}, nil)
 		testRunner(t, client)
 	})
 
@@ -249,11 +233,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		require.NoError(t, fees.SetComputeUnitLimit(&msg3.tx, 200_000))
 		msg3.tx.Signatures = make([]solanaGo.Signature, 1)
 		client.On("SendTx", mock.Anything, &msg3.tx).Return(solanaGo.Signature{4}, nil)
-		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-			Value: &rpc.LatestBlockhashResult{
-				LastValidBlockHeight: uint64(2000),
-			},
-		}, nil)
 		testRunner(t, client)
 	})
 }

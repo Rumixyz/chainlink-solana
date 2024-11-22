@@ -557,7 +557,7 @@ func (c *chain) sendTx(ctx context.Context, from, to string, amount *big.Int, ba
 				toKey,
 			).Build(),
 		},
-		blockhash.Value.Blockhash, // Will be override if needed within sendWithRetry txm function.
+		blockhash.Value.Blockhash,
 		solanago.TransactionPayer(fromKey),
 	)
 	if err != nil {

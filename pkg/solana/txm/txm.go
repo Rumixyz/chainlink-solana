@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -395,7 +396,8 @@ func (txm *Txm) confirm() {
 
 			// In case all txes where confirmed and there's nothing to rebroadcast.
 			// This check saves making 2 RPC calls (slot height + blockhash) when there's nothing to process.
-			if len(txm.txs.ListAllBroadcastedTxs()) == 0 {
+			// Passing MaxUint64 as currHeight to ListAllExpiredBroadcastedTxs will return all broadcasted txs.
+			if len(txm.txs.ListAllExpiredBroadcastedTxs(math.MaxUint64)) == 0 {
 				break
 			}
 			if txm.cfg.TxExpirationRebroadcast() {

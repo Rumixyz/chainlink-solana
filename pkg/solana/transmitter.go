@@ -78,7 +78,7 @@ func (c *Transmitter) Transmit(
 		[]solana.Instruction{
 			solana.NewInstruction(c.programID, accounts, data.Bytes()),
 		},
-		blockhash.Value.Blockhash, // Will be override if needed within sendWithRetry txm function.
+		blockhash.Value.Blockhash,
 		solana.TransactionPayer(c.transmissionSigner),
 	)
 	if err != nil {

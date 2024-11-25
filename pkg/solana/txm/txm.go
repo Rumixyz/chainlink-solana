@@ -180,9 +180,26 @@ func (txm *Txm) run() {
 }
 
 // sendWithRetry attempts to send a transaction with exponential backoff retry logic.
-// It prepares the transaction, builds and signs it, sends the initial transaction, and starts a retry routine with fee bumping if needed.
+// It builds, signs and sends the initial tx with a new valid blockhash, and starts a retry routine with fee bumping if needed.
 // The function returns the signed transaction, its ID, and the initial signature for use in simulation.
 func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Transaction, string, solanaGo.Signature, error) {
+	// Assign new blockhash and lastValidBlockHeight to the transaction
+	// This is essential for tracking transaction rebroadcast
+	// Only the initial transaction should be sent with the updated blockhash
+	client, err := txm.client.Get()
+	if err != nil {
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get client: %w", err)
+	}
+	blockhash, err := client.LatestBlockhash(ctx)
+	if err != nil {
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get latest blockhash: %w", err)
+	}
+	if blockhash == nil || blockhash.Value == nil {
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, errors.New("nil pointer returned from LatestBlockhash")
+	}
+	msg.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
+	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
+
 	// Build and sign initial transaction setting compute unit price and limit
 	initTx, err := txm.buildTx(ctx, msg, 0)
 	if err != nil {
@@ -554,11 +571,6 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		txm.lggr.Errorw("failed to get current slot height", "error", err)
 		return
 	}
-	blockhash, err := client.LatestBlockhash(ctx)
-	if err != nil {
-		txm.lggr.Errorw("failed to get blockhash", "error", err)
-		return
-	}
 	// Rebroadcast all expired txes
 	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
@@ -571,17 +583,13 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
-		// Overwrite blockhash and lastValidBlockHeight with latest values so that the transaction can be rebroadcasted an accepted.
-		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
 		rebroadcastTx := pendingTx{
-			tx:                   tx.tx,
-			cfg:                  tx.cfg,
-			id:                   tx.id,
-			rebroadcastCount:     tx.rebroadcastCount + 1,
-			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
+			tx:               tx.tx,
+			cfg:              tx.cfg,
+			id:               tx.id, // using same id in case it was set by caller and we need to maintain it.
+			rebroadcastCount: tx.rebroadcastCount + 1,
 		}
 		// call sendWithRetry directly to avoid enqueuing
-		// using same id in case it was set by caller and we need to maintain it.
 		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
 		if err != nil {
 			// TODO: add prebroadcast error handling when merged https://github.com/smartcontractkit/chainlink-solana/pull/936
@@ -650,7 +658,7 @@ func (txm *Txm) reap() {
 }
 
 // Enqueue enqueues a msg destined for the solana chain.
-func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, lastValidBlockHeight uint64, txCfgs ...SetTxConfig) error {
+func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txCfgs ...SetTxConfig) error {
 	if err := txm.Ready(); err != nil {
 		return fmt.Errorf("error in soltxm.Enqueue: %w", err)
 	}
@@ -698,9 +706,8 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	msg := pendingTx{
-		tx:                   *tx,
-		lastValidBlockHeight: lastValidBlockHeight,
-		cfg:                  cfg,
+		tx:  *tx,
+		cfg: cfg,
 	}
 
 	// If ID was not set by caller, create one.

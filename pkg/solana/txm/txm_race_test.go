@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	solanaGo "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -83,7 +85,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	t.Run("delay in rebroadcasting tx", func(t *testing.T) {
 		client := clientmocks.NewReaderWriter(t)
-		// client mock
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				LastValidBlockHeight: 100,
+				Blockhash:            solana.Hash{},
+			},
+		}, nil).Once()
 		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
@@ -121,7 +128,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	t.Run("delay in broadcasting new tx", func(t *testing.T) {
 		client := clientmocks.NewReaderWriter(t)
-		// client mock
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				LastValidBlockHeight: 100,
+				Blockhash:            solana.Hash{},
+			},
+		}, nil).Once()
 		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
@@ -157,7 +169,12 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	t.Run("overlapping bumping tx", func(t *testing.T) {
 		client := clientmocks.NewReaderWriter(t)
-		// client mock
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				LastValidBlockHeight: 100,
+				Blockhash:            solana.Hash{},
+			},
+		}, nil).Once()
 		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
@@ -204,7 +221,14 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 
 	t.Run("bumping tx errors and ctx cleans up waitgroup blocks", func(t *testing.T) {
 		client := clientmocks.NewReaderWriter(t)
-		// client mock - first tx is always successful
+		client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+			Value: &rpc.LatestBlockhashResult{
+				LastValidBlockHeight: 100,
+				Blockhash:            solana.Hash{},
+			},
+		}, nil).Once()
+
+		// first tx is always successful
 		msg0 := NewTestMsg()
 		require.NoError(t, fees.SetComputeUnitPrice(&msg0.tx, 0))
 		require.NoError(t, fees.SetComputeUnitLimit(&msg0.tx, 200_000))

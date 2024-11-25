@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -228,14 +227,15 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 
 // buildTx builds and signs the transaction with the appropriate compute unit price.
 func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (solanaGo.Transaction, error) {
+	// work with a copy
+	newTx := msg.tx
+
 	// Set compute unit limit if specified
 	if msg.cfg.ComputeUnitLimit != 0 {
-		if err := fees.SetComputeUnitLimit(&msg.tx, fees.ComputeUnitLimit(msg.cfg.ComputeUnitLimit)); err != nil {
+		if err := fees.SetComputeUnitLimit(&newTx, fees.ComputeUnitLimit(msg.cfg.ComputeUnitLimit)); err != nil {
 			return solanaGo.Transaction{}, fmt.Errorf("failed to add compute unit limit instruction: %w", err)
 		}
 	}
-	// work with a copy
-	newTx := msg.tx
 
 	// Set compute unit price (fee)
 	fee := fees.ComputeUnitPrice(
@@ -393,13 +393,6 @@ func (txm *Txm) confirm() {
 				break
 			}
 			txm.processConfirmations(ctx, client)
-
-			// In case all txes where confirmed and there's nothing to rebroadcast.
-			// This check saves making 2 RPC calls (slot height + blockhash) when there's nothing to process.
-			// Passing MaxUint64 as currHeight to ListAllExpiredBroadcastedTxs will return all broadcasted txs.
-			if len(txm.txs.ListAllExpiredBroadcastedTxs(math.MaxUint64)) == 0 {
-				break
-			}
 			if txm.cfg.TxExpirationRebroadcast() {
 				txm.rebroadcastExpiredTxs(ctx, client)
 			}
@@ -568,7 +561,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 	}
 	// Rebroadcast all expired txes
 	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
-		txm.lggr.Infow("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
 		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
 			continue
@@ -582,6 +575,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
 		rebroadcastTx := pendingTx{
 			tx:                   tx.tx,
+			cfg:                  tx.cfg,
 			id:                   tx.id,
 			rebroadcastCount:     tx.rebroadcastCount + 1,
 			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
@@ -595,7 +589,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			continue
 		}
 
-		txm.lggr.Infow("rebroadcast transaction sent", "id", tx.id)
+		txm.lggr.Debugw("rebroadcast transaction sent", "id", tx.id)
 	}
 }
 
@@ -656,7 +650,7 @@ func (txm *Txm) reap() {
 }
 
 // Enqueue enqueues a msg destined for the solana chain.
-func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txCfgs ...SetTxConfig) error {
+func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, lastValidBlockHeight uint64, txCfgs ...SetTxConfig) error {
 	if err := txm.Ready(); err != nil {
 		return fmt.Errorf("error in soltxm.Enqueue: %w", err)
 	}
@@ -703,9 +697,10 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 		}
 	}
 
-	msg := &pendingTx{
-		tx:  *tx,
-		cfg: cfg,
+	msg := pendingTx{
+		tx:                   *tx,
+		lastValidBlockHeight: lastValidBlockHeight,
+		cfg:                  cfg,
 	}
 
 	// If ID was not set by caller, create one.
@@ -716,7 +711,7 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	select {
-	case txm.chSend <- *msg:
+	case txm.chSend <- msg:
 	default:
 		txm.lggr.Errorw("failed to enqueue tx", "queueFull", len(txm.chSend) == MaxQueueLen, "tx", msg)
 		return fmt.Errorf("failed to enqueue transaction for %s", accountID)

@@ -404,8 +404,9 @@ func (c *pendingTxContext) OnFinalized(sig solana.Signature, retentionTimeout ti
 			return id, nil
 		}
 		finalizedTx := finishedTx{
-			state:       Finalized,
-			retentionTs: time.Now().Add(retentionTimeout),
+			state:            Finalized,
+			retentionTs:      time.Now().Add(retentionTimeout),
+			rebroadcastCount: tx.rebroadcastCount,
 		}
 		finalizedTx := finishedTx{
 			state:       Finalized,
@@ -440,7 +441,8 @@ func (c *pendingTxContext) OnPrebroadcastError(id string, retentionTimeout time.
 
 	// upgrade to write lock if id does not exist in other maps and is not in expected state already
 	_, err = c.withWriteLock(func() (string, error) {
-		if tx, exists := c.finalizedErroredTxs[id]; exists && tx.state == txState {
+		tx, exists := c.finalizedErroredTxs[id]
+		if exists && tx.state == txState {
 			return "", ErrAlreadyInExpectedState
 		}
 		_, broadcastedExists := c.broadcastedProcessedTxs[id]
@@ -449,8 +451,9 @@ func (c *pendingTxContext) OnPrebroadcastError(id string, retentionTimeout time.
 			return "", ErrIDAlreadyExists
 		}
 		erroredTx := finishedTx{
-			state:       txState,
-			retentionTs: time.Now().Add(retentionTimeout),
+			state:            txState,
+			retentionTs:      time.Now().Add(retentionTimeout),
+			rebroadcastCount: tx.rebroadcastCount,
 		}
 		// add transaction to error map
 		c.finalizedErroredTxs[id] = erroredTx
@@ -516,8 +519,9 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 			return id, nil
 		}
 		erroredTx := finishedTx{
-			state:       txState,
-			retentionTs: time.Now().Add(retentionTimeout),
+			state:            txState,
+			retentionTs:      time.Now().Add(retentionTimeout),
+			rebroadcastCount: tx.rebroadcastCount,
 		}
 		erroredTx := finishedTx{
 			state:       txState,

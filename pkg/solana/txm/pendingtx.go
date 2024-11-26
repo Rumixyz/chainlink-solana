@@ -41,10 +41,7 @@ type PendingTxContext interface {
 	OnFinalized(sig solana.Signature, retentionTimeout time.Duration) (string, error)
 	// OnPrebroadcastError adds transaction that has not yet been broadcasted to the finalized/errored map as errored, matches err type using enum
 	OnPrebroadcastError(id string, retentionTimeout time.Duration, txState TxState, errType TxErrType) error
-	// OnPrebroadcastError adds transaction that has not yet been broadcasted to the finalized/errored map as errored, matches err type using enum
-	OnPrebroadcastError(id string, retentionTimeout time.Duration, txState TxState, errType TxErrType) error
 	// OnError marks transaction as errored, matches err type using enum, moves it from the broadcasted or confirmed map to finalized/errored map, removes signatures from signature map to stop confirmation checks
-	OnError(sig solana.Signature, retentionTimeout time.Duration, txState TxState, errType TxErrType) (string, error)
 	OnError(sig solana.Signature, retentionTimeout time.Duration, txState TxState, errType TxErrType) (string, error)
 	// GetTxState returns the transaction state for the provided ID if it exists
 	GetTxState(id string) (TxState, error)
@@ -408,12 +405,7 @@ func (c *pendingTxContext) OnFinalized(sig solana.Signature, retentionTimeout ti
 			retentionTs:      time.Now().Add(retentionTimeout),
 			rebroadcastCount: tx.rebroadcastCount,
 		}
-		finalizedTx := finishedTx{
-			state:       Finalized,
-			retentionTs: time.Now().Add(retentionTimeout),
-		}
 		// move transaction from confirmed to finalized map
-		c.finalizedErroredTxs[id] = finalizedTx
 		c.finalizedErroredTxs[id] = finalizedTx
 		return id, nil
 	})
@@ -514,7 +506,6 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 			delete(c.sigToID, s)
 		}
 		// if retention duration is set to 0, skip adding transaction to the errored map
-		// if retention duration is set to 0, skip adding transaction to the errored map
 		if retentionTimeout == 0 {
 			return id, nil
 		}
@@ -523,12 +514,7 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 			retentionTs:      time.Now().Add(retentionTimeout),
 			rebroadcastCount: tx.rebroadcastCount,
 		}
-		erroredTx := finishedTx{
-			state:       txState,
-			retentionTs: time.Now().Add(retentionTimeout),
-		}
 		// move transaction from broadcasted to error map
-		c.finalizedErroredTxs[id] = erroredTx
 		c.finalizedErroredTxs[id] = erroredTx
 		return id, nil
 	})
@@ -550,31 +536,6 @@ func (c *pendingTxContext) GetTxState(id string) (TxState, error) {
 }
 
 // TrimFinalizedErroredTxs deletes transactions from the finalized/errored map and the allTxs map after the retention period has passed
-func (c *pendingTxContext) TrimFinalizedErroredTxs() int {
-	var expiredIDs []string
-	err := c.withReadLock(func() error {
-		expiredIDs = make([]string, 0, len(c.finalizedErroredTxs))
-		for id, tx := range c.finalizedErroredTxs {
-			if time.Now().After(tx.retentionTs) {
-				expiredIDs = append(expiredIDs, id)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return 0
-	}
-
-	_, err = c.withWriteLock(func() (string, error) {
-		for _, id := range expiredIDs {
-			delete(c.finalizedErroredTxs, id)
-		}
-		return "", nil
-	})
-	if err != nil {
-		return 0
-	}
-	return len(expiredIDs)
 func (c *pendingTxContext) TrimFinalizedErroredTxs() int {
 	var expiredIDs []string
 	err := c.withReadLock(func() error {
@@ -639,11 +600,7 @@ type pendingTxContextWithProm struct {
 
 type TxErrType int
 
-type TxErrType int
-
 const (
-	NoFailure TxErrType = iota
-	TxFailRevert
 	NoFailure TxErrType = iota
 	TxFailRevert
 	TxFailReject
@@ -716,23 +673,7 @@ func (c *pendingTxContextWithProm) OnError(sig solana.Signature, retentionTimeou
 
 func (c *pendingTxContextWithProm) OnPrebroadcastError(id string, retentionTimeout time.Duration, txState TxState, errType TxErrType) error {
 	err := c.pendingTx.OnPrebroadcastError(id, retentionTimeout, txState, errType) // err indicates transaction not found so may already be removed
-func (c *pendingTxContextWithProm) OnError(sig solana.Signature, retentionTimeout time.Duration, txState TxState, errType TxErrType) (string, error) {
-	id, err := c.pendingTx.OnError(sig, retentionTimeout, txState, errType) // err indicates transaction not found so may already be removed
 	if err == nil {
-		incrementErrorMetrics(errType, c.chainID)
-	}
-	return id, err
-}
-
-func (c *pendingTxContextWithProm) OnPrebroadcastError(id string, retentionTimeout time.Duration, txState TxState, errType TxErrType) error {
-	err := c.pendingTx.OnPrebroadcastError(id, retentionTimeout, txState, errType) // err indicates transaction not found so may already be removed
-	if err == nil {
-		incrementErrorMetrics(errType, c.chainID)
-	}
-	return err
-}
-
-func incrementErrorMetrics(errType TxErrType, chainID string) {
 		incrementErrorMetrics(errType, c.chainID)
 	}
 	return err
@@ -749,23 +690,11 @@ func incrementErrorMetrics(errType TxErrType, chainID string) {
 		promSolTxmRevertTxs.WithLabelValues(chainID).Inc()
 	case TxFailDrop:
 		promSolTxmDropTxs.WithLabelValues(chainID).Inc()
-	case NoFailure:
-		// Return early if no failure identified
-		return
-	case TxFailReject:
-		promSolTxmRejectTxs.WithLabelValues(chainID).Inc()
-	case TxFailRevert:
-		promSolTxmRevertTxs.WithLabelValues(chainID).Inc()
-	case TxFailDrop:
-		promSolTxmDropTxs.WithLabelValues(chainID).Inc()
 	case TxFailSimRevert:
-		promSolTxmSimRevertTxs.WithLabelValues(chainID).Inc()
 		promSolTxmSimRevertTxs.WithLabelValues(chainID).Inc()
 	case TxFailSimOther:
 		promSolTxmSimOtherTxs.WithLabelValues(chainID).Inc()
-		promSolTxmSimOtherTxs.WithLabelValues(chainID).Inc()
 	}
-	promSolTxmErrorTxs.WithLabelValues(chainID).Inc()
 	promSolTxmErrorTxs.WithLabelValues(chainID).Inc()
 }
 

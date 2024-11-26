@@ -294,7 +294,6 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Transition to errored state
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
-		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
@@ -406,7 +405,6 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 		require.NoError(t, err)
 
 		// Transition to errored state
-		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -586,7 +584,6 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Transition to errored state
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
-		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
@@ -611,7 +608,6 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.NoError(t, err)
 
 		// Transition to errored state
-		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -650,7 +646,6 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, msg.id, id)
 
 		// Transition to errored state
-		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -719,7 +714,6 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Transition to errored state
 		id, err = txs.OnError(sig, 0*time.Second, Errored, 0)
-		id, err = txs.OnError(sig, 0*time.Second, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
@@ -755,73 +749,8 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Transition back to confirmed state
 		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
-		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.Error(t, err)
 		require.Equal(t, "", id)
-	})
-}
-
-func TestPendingTxContext_on_prebroadcast_error(t *testing.T) {
-	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
-	txs := newPendingTxContext()
-	retentionTimeout := 5 * time.Second
-
-	t.Run("successfully adds transaction with errored state", func(t *testing.T) {
-		// Create new transaction
-		msg := pendingTx{id: uuid.NewString()}
-		// Transition to errored state
-		err := txs.OnPrebroadcastError(msg.id, retentionTimeout, Errored, 0)
-		require.NoError(t, err)
-
-		// Check it exists in errored map
-		tx, exists := txs.finalizedErroredTxs[msg.id]
-		require.True(t, exists)
-
-		// Check status is Errored
-		require.Equal(t, Errored, tx.state)
-	})
-
-	t.Run("successfully adds transaction with fatally errored state", func(t *testing.T) {
-		// Create new transaction
-		msg := pendingTx{id: uuid.NewString()}
-
-		// Transition to fatally errored state
-		err := txs.OnPrebroadcastError(msg.id, retentionTimeout, FatallyErrored, 0)
-		require.NoError(t, err)
-
-		// Check it exists in errored map
-		tx, exists := txs.finalizedErroredTxs[msg.id]
-		require.True(t, exists)
-
-		// Check status is Errored
-		require.Equal(t, FatallyErrored, tx.state)
-	})
-
-	t.Run("fails to add transaction to errored map if id exists in another map already", func(t *testing.T) {
-		sig := randomSignature(t)
-
-		// Create new transaction
-		msg := pendingTx{id: uuid.NewString()}
-		// Add transaction to broadcasted map
-		err := txs.New(msg, sig, cancel)
-		require.NoError(t, err)
-
-		// Transition to errored state
-		err = txs.OnPrebroadcastError(msg.id, retentionTimeout, FatallyErrored, 0)
-		require.ErrorIs(t, err, ErrIDAlreadyExists)
-	})
-
-	t.Run("predefined error if transaction already in errored state", func(t *testing.T) {
-		txID := uuid.NewString()
-
-		// Transition to errored state
-		err := txs.OnPrebroadcastError(txID, retentionTimeout, Errored, 0)
-		require.NoError(t, err)
-
-		// Transition back to errored state
-		err = txs.OnPrebroadcastError(txID, retentionTimeout, Errored, 0)
-		require.ErrorIs(t, err, ErrAlreadyInExpectedState)
 	})
 }
 
@@ -938,7 +867,6 @@ func TestPendingTxContext_remove(t *testing.T) {
 	erroredMsg := pendingTx{id: uuid.NewString()}
 	err = txs.New(erroredMsg, erroredSig, cancel)
 	require.NoError(t, err)
-	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
 	require.Equal(t, erroredMsg.id, id)
@@ -1128,7 +1056,6 @@ func TestGetTxState(t *testing.T) {
 	finalizedSig := randomSignature(t)
 	erroredSig := randomSignature(t)
 	fatallyErroredSig := randomSignature(t)
-	fatallyErroredSig := randomSignature(t)
 
 	// Create new broadcasted transaction with extra sig
 	broadcastedMsg := pendingTx{id: uuid.NewString()}
@@ -1177,25 +1104,12 @@ func TestGetTxState(t *testing.T) {
 	err = txs.New(erroredMsg, erroredSig, cancel)
 	require.NoError(t, err)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
-	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
 	require.Equal(t, erroredMsg.id, id)
 	// Check Errored state is returned
 	state, err = txs.GetTxState(erroredMsg.id)
 	require.NoError(t, err)
 	require.Equal(t, Errored, state)
-
-	// Create new fatally errored transaction
-	fatallyErroredMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(fatallyErroredMsg, fatallyErroredSig, cancel)
-	require.NoError(t, err)
-	id, err = txs.OnError(fatallyErroredSig, retentionTimeout, FatallyErrored, 0)
-	require.NoError(t, err)
-	require.Equal(t, fatallyErroredMsg.id, id)
-	// Check Errored state is returned
-	state, err = txs.GetTxState(fatallyErroredMsg.id)
-	require.NoError(t, err)
-	require.Equal(t, FatallyErrored, state)
 
 	// Create new fatally errored transaction
 	fatallyErroredMsg := pendingTx{id: uuid.NewString()}

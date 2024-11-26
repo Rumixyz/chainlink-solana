@@ -138,7 +138,6 @@ func TestTxm(t *testing.T) {
 			txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 			require.NoError(t, txm.Start(ctx))
 			t.Cleanup(func() { require.NoError(t, txm.Close()) })
-			t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 			// tracking prom metrics
 			prom := soltxmProm{id: id}
@@ -775,7 +774,6 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 	require.NoError(t, txm.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
-	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 	// tracking prom metrics
 	prom := soltxmProm{id: id}
@@ -837,24 +835,6 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 			out.ConfirmationStatus = rpc.ConfirmationStatusProcessed
 			return
 		}
-		// handle signature status calls (initial stays processed, others don't exist)
-		start := time.Now()
-		statuses[sig] = func() (out *rpc.SignatureStatusesResult) {
-			out = &rpc.SignatureStatusesResult{}
-			// return confirmed status after default confirmation timeout
-			if time.Since(start) > 1*time.Second && time.Since(start) < 2*time.Second {
-				out.ConfirmationStatus = rpc.ConfirmationStatusConfirmed
-				return
-			}
-			// return finalized status only after the confirmation timeout
-			if time.Since(start) >= 2*time.Second {
-				out.ConfirmationStatus = rpc.ConfirmationStatusFinalized
-				wg.Done()
-				return
-			}
-			out.ConfirmationStatus = rpc.ConfirmationStatusProcessed
-			return
-		}
 
 		// tx should be able to queue
 		testTxID := uuid.New().String()
@@ -864,13 +844,7 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 
 		// panic if sendTx called after context cancelled
 		mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
-		// panic if sendTx called after context cancelled
-		mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
 
-		// check prom metric
-		prom.confirmed++
-		prom.finalized++
-		prom.assertEqual(t)
 		// check prom metric
 		prom.confirmed++
 		prom.finalized++
@@ -880,105 +854,10 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 		status, err := txm.GetTransactionStatus(ctx, testTxID)
 		require.NoError(t, err)
 		require.Equal(t, types.Finalized, status)
-		// check transaction status which should still be stored
-		status, err := txm.GetTransactionStatus(ctx, testTxID)
-		require.NoError(t, err)
-		require.Equal(t, types.Finalized, status)
 
 		// Sleep until retention period has passed for transaction and for another reap cycle to run
 		time.Sleep(10 * time.Second)
-		// Sleep until retention period has passed for transaction and for another reap cycle to run
-		time.Sleep(10 * time.Second)
 
-		// check if transaction has been purged from memory
-		status, err = txm.GetTransactionStatus(ctx, testTxID)
-		require.Error(t, err)
-		require.Equal(t, types.Unknown, status)
-	})
-
-	t.Run("stores error if initial send fails", func(t *testing.T) {
-		// Test tx is not discarded due to confirm timeout and tracked to finalization
-		// use unique val across tests to avoid collision during mocking
-		tx, signed := getTx(t, 2, mkey)
-		var wg sync.WaitGroup
-		wg.Add(1)
-
-		mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Run(func(mock.Arguments) {
-			wg.Done()
-		}).Return(nil, errors.New("failed to send"))
-
-		// tx should be able to queue
-		testTxID := uuid.NewString()
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
-		wg.Wait()
-		waitFor(t, 5*time.Second, txm, prom, empty) // inflight txs cleared after timeout
-
-		// panic if sendTx called after context cancelled
-		mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
-
-		// check prom metric
-		prom.error++
-		prom.reject++
-		prom.assertEqual(t)
-
-		// check transaction status which should still be stored
-		status, err := txm.GetTransactionStatus(ctx, testTxID)
-		require.NoError(t, err)
-		require.Equal(t, types.Failed, status)
-
-		// Sleep until retention period has passed for transaction and for another reap cycle to run
-		time.Sleep(15 * time.Second)
-
-		// check if transaction has been purged from memory
-		status, err = txm.GetTransactionStatus(ctx, testTxID)
-		require.Error(t, err)
-		require.Equal(t, types.Unknown, status)
-	})
-
-	t.Run("stores error if confirmation returns error", func(t *testing.T) {
-		// Test tx is not discarded due to confirm timeout and tracked to finalization
-		// use unique val across tests to avoid collision during mocking
-		tx, signed := getTx(t, 3, mkey)
-		sig := randomSignature(t)
-		var wg sync.WaitGroup
-		wg.Add(2)
-
-		mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
-		mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
-			wg.Done()
-		}).Return(&rpc.SimulateTransactionResult{}, nil).Once()
-		statuses[sig] = func() (out *rpc.SignatureStatusesResult) {
-			defer wg.Done()
-			return &rpc.SignatureStatusesResult{Err: errors.New("InstructionError")}
-		}
-
-		// tx should be able to queue
-		testTxID := uuid.NewString()
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID))
-		wg.Wait()                                   // wait till send tx
-		waitFor(t, 5*time.Second, txm, prom, empty) // inflight txs cleared after timeout
-
-		// panic if sendTx called after context cancelled
-		mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
-
-		// check prom metric
-		prom.error++
-		prom.revert++
-		prom.assertEqual(t)
-
-		// check transaction status which should still be stored
-		status, err := txm.GetTransactionStatus(ctx, testTxID)
-		require.NoError(t, err)
-		require.Equal(t, types.Failed, status)
-
-		// Sleep until retention period has passed for transaction and for another reap cycle to run
-		time.Sleep(15 * time.Second)
-
-		// check if transaction has been purged from memory
-		status, err = txm.GetTransactionStatus(ctx, testTxID)
-		require.Error(t, err)
-		require.Equal(t, types.Unknown, status)
-	})
 		// check if transaction has been purged from memory
 		status, err = txm.GetTransactionStatus(ctx, testTxID)
 		require.Error(t, err)
@@ -1099,7 +978,6 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	txm := NewTxm(id, loader, nil, cfg, mkey, lggr)
 	require.NoError(t, txm.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, txm.Close()) })
-	t.Cleanup(func() { require.NoError(t, txm.Close()) })
 
 	// tracking prom metrics
 	prom := soltxmProm{id: id}
@@ -1128,7 +1006,6 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 
 	t.Run("simulation_succeeds", func(t *testing.T) {
 		// Test tx is not discarded due to confirm timeout and tracked to finalization
-		// use unique val across tests to avoid collision during mocking
 		// use unique val across tests to avoid collision during mocking
 		tx, signed := getTx(t, 1, mkey)
 		// add signature and compute unit limit to tx for simulation (excludes compute unit price)
@@ -1195,8 +1072,6 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 		// Test tx is not discarded due to confirm timeout and tracked to finalization
 		// use unique val across tests to avoid collision during mocking
 		tx, signed := getTx(t, 2, mkey)
-		// use unique val across tests to avoid collision during mocking
-		tx, signed := getTx(t, 2, mkey)
 		sig := randomSignature(t)
 
 		mc.On("SendTx", mock.Anything, signed(0, true, fees.ComputeUnitLimit(0))).Return(sig, nil).Panic("SendTx should never be called").Maybe()
@@ -1210,17 +1085,13 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 		// Test tx is not discarded due to confirm timeout and tracked to finalization
 		// use unique val across tests to avoid collision during mocking
 		tx, _ := getTx(t, 3, mkey)
-		// use unique val across tests to avoid collision during mocking
-		tx, _ := getTx(t, 3, mkey)
 		// add signature and compute unit limit to tx for simulation (excludes compute unit price)
 		simulateTx := addSigAndLimitToTx(t, mkey, solana.PublicKey{}, *tx, MaxComputeUnitLimit)
 		sig := randomSignature(t)
 		mc.On("SendTx", mock.Anything, mock.Anything).Return(sig, nil).Panic("SendTx should never be called").Maybe()
 		// First simulation before broadcast with max compute unit limit
 		mc.On("SimulateTx", mock.Anything, simulateTx, mock.Anything).Return(&rpc.SimulateTransactionResult{Err: errors.New("InstructionError")}, nil).Once()
-		mc.On("SimulateTx", mock.Anything, simulateTx, mock.Anything).Return(&rpc.SimulateTransactionResult{Err: errors.New("InstructionError")}, nil).Once()
 
-		txID := uuid.NewString()
 		txID := uuid.NewString()
 		// tx should NOT be able to queue
 		assert.Error(t, txm.Enqueue(ctx, t.Name(), tx, &txID))

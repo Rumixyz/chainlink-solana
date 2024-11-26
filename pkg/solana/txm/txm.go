@@ -582,7 +582,8 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
 			continue
 		}
-		_, err := txm.txs.Remove(tx.signatures[0]) // only picking signature[0]. Remove func removes all related remaining signatures.
+		// only picking signature[0]. Remove func removes all related remaining signatures and cancels tx context.
+		_, err := txm.txs.Remove(tx.signatures[0])
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
@@ -594,10 +595,10 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			rebroadcastCount: tx.rebroadcastCount + 1,
 		}
 		// call sendWithRetry directly to avoid enqueuing
-		_, _, _, err = txm.sendWithRetry(ctx, rebroadcastTx)
-		if err != nil {
-			// TODO: add prebroadcast error handling when merged https://github.com/smartcontractkit/chainlink-solana/pull/936
-			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", err)
+		_, _, _, sendErr := txm.sendWithRetry(ctx, rebroadcastTx)
+		if sendErr != nil {
+			stateTransitionErr := txm.txs.OnPrebroadcastError(tx.id, txm.cfg.TxRetentionTimeout(), Errored, TxFailReject)
+			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", errors.Join(sendErr, stateTransitionErr))
 			continue
 		}
 

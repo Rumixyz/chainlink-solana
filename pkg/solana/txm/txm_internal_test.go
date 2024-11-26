@@ -259,12 +259,14 @@ func TestTxm(t *testing.T) {
 				_, err := txm.GetTransactionStatus(ctx, testTxID)
 				require.Error(t, err) // transaction cleared from storage after finalized should not return status
 			})
+
 			// tx fails simulation (simulation error)
 			t.Run("fail_simulation", func(t *testing.T) {
 				tx, signed := getTx(t, 2, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(1)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
 					wg.Done()
@@ -298,6 +300,7 @@ func TestTxm(t *testing.T) {
 				retry3 := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(1)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SendTx", mock.Anything, signed(1, true, computeUnitLimitDefault)).Return(retry0, nil)
 				mc.On("SendTx", mock.Anything, signed(2, true, computeUnitLimitDefault)).Return(retry1, nil)
@@ -365,6 +368,7 @@ func TestTxm(t *testing.T) {
 				// panic if sendTx called after context cancelled
 				mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
 			})
+
 			// tx fails simulation with BlockHashNotFound error
 			// txm should continue to finalize tx (in this case it will succeed)
 			t.Run("fail_simulation_blockhashNotFound", func(t *testing.T) {
@@ -372,6 +376,7 @@ func TestTxm(t *testing.T) {
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(2)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
 					wg.Done()
@@ -422,6 +427,7 @@ func TestTxm(t *testing.T) {
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(2)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
 					wg.Done()
@@ -466,6 +472,7 @@ func TestTxm(t *testing.T) {
 				retry3 := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(1)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SendTx", mock.Anything, signed(1, true, computeUnitLimitDefault)).Return(retry0, nil)
 				mc.On("SendTx", mock.Anything, signed(2, true, computeUnitLimitDefault)).Return(retry1, nil)
@@ -510,6 +517,7 @@ func TestTxm(t *testing.T) {
 				retry3 := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(1)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SendTx", mock.Anything, signed(1, true, computeUnitLimitDefault)).Return(retry0, nil)
 				mc.On("SendTx", mock.Anything, signed(2, true, computeUnitLimitDefault)).Return(retry1, nil)
@@ -557,6 +565,7 @@ func TestTxm(t *testing.T) {
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(1)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
 					wg.Done()
@@ -598,6 +607,7 @@ func TestTxm(t *testing.T) {
 				retry3 := randomSignature(t)
 				var wg sync.WaitGroup
 				wg.Add(2)
+
 				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
 				mc.On("SendTx", mock.Anything, signed(1, true, computeUnitLimitDefault)).Return(retry0, nil)
 				mc.On("SendTx", mock.Anything, signed(2, true, computeUnitLimitDefault)).Return(retry1, nil)

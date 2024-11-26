@@ -208,12 +208,12 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 
 	// Send initial transaction
 	ctx, cancel := context.WithTimeout(ctx, msg.cfg.Timeout)
-	sig, err := txm.sendTx(ctx, &initTx)
-	if err != nil {
+	sig, initSendErr := txm.sendTx(ctx, &initTx)
+	if initSendErr != nil {
 		// Do not retry and exit early if fails
 		cancel()
-		txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailReject) //nolint // no need to check error since only incrementing metric here
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", err)
+		stateTransitionErr := txm.txs.OnPrebroadcastError(msg.id, txm.cfg.TxRetentionTimeout(), Errored, TxFailReject)
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", errors.Join(initSendErr, stateTransitionErr))
 	}
 
 	// Store tx signature and cancel function

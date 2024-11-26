@@ -65,6 +65,13 @@ type finishedTx struct {
 	state       TxState
 }
 
+// finishedTx is used to store minimal info specifically for finalized or errored transactions for external status checks
+type finishedTx struct {
+	retentionTs      time.Time
+	state            TxState
+	rebroadcastCount int
+}
+
 var _ PendingTxContext = &pendingTxContext{}
 
 type pendingTxContext struct {

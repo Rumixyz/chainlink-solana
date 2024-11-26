@@ -93,11 +93,11 @@ func TestPendingTxContext_new(t *testing.T) {
 	require.Equal(t, Broadcasted, tx.state)
 
 	// Check it does not exist in confirmed map
-	tx, exists = txs.confirmedTxs[msg.id]
+	_, exists = txs.confirmedTxs[msg.id]
 	require.False(t, exists)
 
 	// Check it does not exist in finalized map
-	tx, exists = txs.finalizedErroredTxs[msg.id]
+	_, exists = txs.finalizedErroredTxs[msg.id]
 	require.False(t, exists)
 }
 
@@ -134,11 +134,11 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 		require.Equal(t, sig2, tx.signatures[1])
 
 		// Check confirmed map
-		tx, exists = txs.confirmedTxs[msg.id]
+		_, exists = txs.confirmedTxs[msg.id]
 		require.False(t, exists)
 
 		// Check finalized map
-		tx, exists = txs.finalizedErroredTxs[msg.id]
+		_, exists = txs.finalizedErroredTxs[msg.id]
 		require.False(t, exists)
 	})
 
@@ -225,11 +225,11 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 		require.Equal(t, Processed, tx.state)
 
 		// Check it does not exist in confirmed map
-		tx, exists = txs.confirmedTxs[msg.id]
+		_, exists = txs.confirmedTxs[msg.id]
 		require.False(t, exists)
 
 		// Check it does not exist in finalized map
-		tx, exists = txs.finalizedErroredTxs[msg.id]
+		_, exists = txs.finalizedErroredTxs[msg.id]
 		require.False(t, exists)
 	})
 
@@ -293,6 +293,7 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 		require.NoError(t, err)
 
 		// Transition to errored state
+		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -364,7 +365,7 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 		require.Equal(t, Confirmed, tx.state)
 
 		// Check it does not exist in finalized map
-		tx, exists = txs.finalizedErroredTxs[msg.id]
+		_, exists = txs.finalizedErroredTxs[msg.id]
 		require.False(t, exists)
 	})
 
@@ -405,6 +406,7 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 		require.NoError(t, err)
 
 		// Transition to errored state
+		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -584,6 +586,7 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Transition to errored state
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
+		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
@@ -608,6 +611,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.NoError(t, err)
 
 		// Transition to errored state
+		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		id, err := txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -647,6 +651,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Transition to errored state
 		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
+		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
@@ -674,7 +679,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		sig := randomSignature(t)
 
 		// Create new transaction
-		msg := PendingTx{UUID: uuid.NewString()}
+		msg := pendingTx{id: uuid.NewString()}
 		err := txs.New(msg, sig, cancel)
 		require.NoError(t, err)
 
@@ -684,7 +689,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, msg.id, id)
 
 		// Check it does not exist in broadcasted map
-		_, exists := txs.broadcastedTxs[msg.id]
+		_, exists := txs.broadcastedProcessedTxs[msg.id]
 		require.False(t, exists)
 
 		// Check it exists in errored map
@@ -713,6 +718,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, msg.id, id)
 
 		// Transition to errored state
+		id, err = txs.OnError(sig, 0*time.Second, Errored, 0)
 		id, err = txs.OnError(sig, 0*time.Second, Errored, 0)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -749,8 +755,73 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Transition back to confirmed state
 		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
+		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.Error(t, err)
 		require.Equal(t, "", id)
+	})
+}
+
+func TestPendingTxContext_on_prebroadcast_error(t *testing.T) {
+	t.Parallel()
+	_, cancel := context.WithCancel(tests.Context(t))
+	txs := newPendingTxContext()
+	retentionTimeout := 5 * time.Second
+
+	t.Run("successfully adds transaction with errored state", func(t *testing.T) {
+		// Create new transaction
+		msg := pendingTx{id: uuid.NewString()}
+		// Transition to errored state
+		err := txs.OnPrebroadcastError(msg.id, retentionTimeout, Errored, 0)
+		require.NoError(t, err)
+
+		// Check it exists in errored map
+		tx, exists := txs.finalizedErroredTxs[msg.id]
+		require.True(t, exists)
+
+		// Check status is Errored
+		require.Equal(t, Errored, tx.state)
+	})
+
+	t.Run("successfully adds transaction with fatally errored state", func(t *testing.T) {
+		// Create new transaction
+		msg := pendingTx{id: uuid.NewString()}
+
+		// Transition to fatally errored state
+		err := txs.OnPrebroadcastError(msg.id, retentionTimeout, FatallyErrored, 0)
+		require.NoError(t, err)
+
+		// Check it exists in errored map
+		tx, exists := txs.finalizedErroredTxs[msg.id]
+		require.True(t, exists)
+
+		// Check status is Errored
+		require.Equal(t, FatallyErrored, tx.state)
+	})
+
+	t.Run("fails to add transaction to errored map if id exists in another map already", func(t *testing.T) {
+		sig := randomSignature(t)
+
+		// Create new transaction
+		msg := pendingTx{id: uuid.NewString()}
+		// Add transaction to broadcasted map
+		err := txs.New(msg, sig, cancel)
+		require.NoError(t, err)
+
+		// Transition to errored state
+		err = txs.OnPrebroadcastError(msg.id, retentionTimeout, FatallyErrored, 0)
+		require.ErrorIs(t, err, ErrIDAlreadyExists)
+	})
+
+	t.Run("predefined error if transaction already in errored state", func(t *testing.T) {
+		txID := uuid.NewString()
+
+		// Transition to errored state
+		err := txs.OnPrebroadcastError(txID, retentionTimeout, Errored, 0)
+		require.NoError(t, err)
+
+		// Transition back to errored state
+		err = txs.OnPrebroadcastError(txID, retentionTimeout, Errored, 0)
+		require.ErrorIs(t, err, ErrAlreadyInExpectedState)
 	})
 }
 
@@ -868,6 +939,7 @@ func TestPendingTxContext_remove(t *testing.T) {
 	err = txs.New(erroredMsg, erroredSig, cancel)
 	require.NoError(t, err)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
+	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
 	require.Equal(t, erroredMsg.id, id)
 
@@ -924,32 +996,34 @@ func TestPendingTxContext_trim_finalized_errored_txs(t *testing.T) {
 	txs := newPendingTxContext()
 
 	// Create new finalized transaction with retention ts in the past and add to map
-	finalizedMsg1 := pendingTx{id: uuid.NewString(), retentionTs: time.Now().Add(-2 * time.Second)}
-	txs.finalizedErroredTxs[finalizedMsg1.id] = finalizedMsg1
+	finalizedMsg1 := finishedTx{retentionTs: time.Now().Add(-2 * time.Second)}
+	finalizedMsg1ID := uuid.NewString()
+	txs.finalizedErroredTxs[finalizedMsg1ID] = finalizedMsg1
 
 	// Create new finalized transaction with retention ts in the future and add to map
-	finalizedMsg2 := pendingTx{id: uuid.NewString(), retentionTs: time.Now().Add(1 * time.Second)}
-	txs.finalizedErroredTxs[finalizedMsg2.id] = finalizedMsg2
+	finalizedMsg2 := finishedTx{retentionTs: time.Now().Add(1 * time.Second)}
+	finalizedMsg2ID := uuid.NewString()
+	txs.finalizedErroredTxs[finalizedMsg2ID] = finalizedMsg2
 
 	// Create new finalized transaction with retention ts in the past and add to map
-	erroredMsg := pendingTx{id: uuid.NewString(), retentionTs: time.Now().Add(-2 * time.Second)}
-	txs.finalizedErroredTxs[erroredMsg.id] = erroredMsg
+	erroredMsg := finishedTx{retentionTs: time.Now().Add(-2 * time.Second)}
+	erroredMsgID := uuid.NewString()
+	txs.finalizedErroredTxs[erroredMsgID] = erroredMsg
 
 	// Delete finalized/errored transactions that have passed the retention period
 	txs.TrimFinalizedErroredTxs()
 
 	// Check finalized message past retention is deleted
-	_, exists := txs.finalizedErroredTxs[finalizedMsg1.id]
+	_, exists := txs.finalizedErroredTxs[finalizedMsg1ID]
 	require.False(t, exists)
 
 	// Check errored message past retention is deleted
-	_, exists = txs.finalizedErroredTxs[erroredMsg.id]
+	_, exists = txs.finalizedErroredTxs[erroredMsgID]
 	require.False(t, exists)
 
 	// Check finalized message within retention period still exists
-	msg, exists := txs.finalizedErroredTxs[finalizedMsg2.id]
+	_, exists = txs.finalizedErroredTxs[finalizedMsg2ID]
 	require.True(t, exists)
-	require.Equal(t, finalizedMsg2.id, msg.id)
 }
 
 func TestPendingTxContext_expired(t *testing.T) {
@@ -1054,6 +1128,7 @@ func TestGetTxState(t *testing.T) {
 	finalizedSig := randomSignature(t)
 	erroredSig := randomSignature(t)
 	fatallyErroredSig := randomSignature(t)
+	fatallyErroredSig := randomSignature(t)
 
 	// Create new broadcasted transaction with extra sig
 	broadcastedMsg := pendingTx{id: uuid.NewString()}
@@ -1102,12 +1177,25 @@ func TestGetTxState(t *testing.T) {
 	err = txs.New(erroredMsg, erroredSig, cancel)
 	require.NoError(t, err)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
+	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
 	require.Equal(t, erroredMsg.id, id)
 	// Check Errored state is returned
 	state, err = txs.GetTxState(erroredMsg.id)
 	require.NoError(t, err)
 	require.Equal(t, Errored, state)
+
+	// Create new fatally errored transaction
+	fatallyErroredMsg := pendingTx{id: uuid.NewString()}
+	err = txs.New(fatallyErroredMsg, fatallyErroredSig, cancel)
+	require.NoError(t, err)
+	id, err = txs.OnError(fatallyErroredSig, retentionTimeout, FatallyErrored, 0)
+	require.NoError(t, err)
+	require.Equal(t, fatallyErroredMsg.id, id)
+	// Check Errored state is returned
+	state, err = txs.GetTxState(fatallyErroredMsg.id)
+	require.NoError(t, err)
+	require.Equal(t, FatallyErrored, state)
 
 	// Create new fatally errored transaction
 	fatallyErroredMsg := pendingTx{id: uuid.NewString()}

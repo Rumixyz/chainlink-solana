@@ -208,12 +208,12 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 
 	// Send initial transaction
 	ctx, cancel := context.WithTimeout(ctx, msg.cfg.Timeout)
-	sig, err := txm.sendTx(ctx, &initTx)
-	if err != nil {
+	sig, initSendErr := txm.sendTx(ctx, &initTx)
+	if initSendErr != nil {
 		// Do not retry and exit early if fails
 		cancel()
-		txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailReject) //nolint // no need to check error since only incrementing metric here
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", err)
+		stateTransitionErr := txm.txs.OnPrebroadcastError(msg.id, txm.cfg.TxRetentionTimeout(), Errored, TxFailReject)
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", errors.Join(initSendErr, stateTransitionErr))
 	}
 
 	// Store tx signature and cancel function
@@ -490,13 +490,12 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 // If the confirmation timeout has been exceeded it marks the transaction as errored.
 func (txm *Txm) handleNotFoundSignatureStatus(sig solanaGo.Signature) {
 	txm.lggr.Debugw("tx state: not found", "signature", sig)
-	// check confirm timeout exceeded
 	if txm.cfg.TxConfirmTimeout() != 0*time.Second && txm.txs.Expired(sig, txm.cfg.TxConfirmTimeout()) {
-		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailDrop)
+		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), Errored, TxFailDrop)
 		if err != nil {
 			txm.lggr.Infow("failed to mark transaction as errored", "id", id, "signature", sig, "timeoutSeconds", txm.cfg.TxConfirmTimeout(), "error", err)
 		} else {
-			txm.lggr.Infow("failed to find transaction within confirm timeout", "id", id, "signature", sig, "timeoutSeconds", txm.cfg.TxConfirmTimeout())
+			txm.lggr.Debugw("failed to find transaction within confirm timeout", "id", id, "signature", sig, "timeoutSeconds", txm.cfg.TxConfirmTimeout())
 		}
 	}
 }
@@ -511,11 +510,15 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 		return
 	}
 
-	id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailRevert)
-	if err != nil {
-		txm.lggr.Infow("failed to mark transaction as errored", "id", id, "signature", sig, "error", err)
-	} else {
-		txm.lggr.Debugw("tx state: failed", "id", id, "signature", sig, "error", status.Err, "status", status.ConfirmationStatus)
+	// Process error to determine the corresponding state and type.
+	// Skip marking as errored if error considered to not be a failure.
+	if txState, errType := txm.processError(sig, status.Err, false); errType != NoFailure {
+		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), txState, errType)
+		if err != nil {
+			txm.lggr.Infow(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "signature", sig, "error", err)
+		} else {
+			txm.lggr.Debugw(fmt.Sprintf("marking transaction as %s", txState.String()), "id", id, "signature", sig, "error", status.Err, "status", status.ConfirmationStatus)
+		}
 	}
 }
 
@@ -532,7 +535,7 @@ func (txm *Txm) handleProcessedSignatureStatus(sig solanaGo.Signature) {
 	}
 	// check confirm timeout exceeded if TxConfirmTimeout set
 	if txm.cfg.TxConfirmTimeout() != 0*time.Second && txm.txs.Expired(sig, txm.cfg.TxConfirmTimeout()) {
-		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailDrop)
+		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), Errored, TxFailDrop)
 		if err != nil {
 			txm.lggr.Infow("failed to mark transaction as errored", "id", id, "signature", sig, "timeoutSeconds", txm.cfg.TxConfirmTimeout(), "error", err)
 		} else {
@@ -629,8 +632,18 @@ func (txm *Txm) simulate() {
 			}
 
 			// Transaction has to have a signature if simulation succeeded but added check for belt and braces approach
-			if len(msg.signatures) > 0 {
-				txm.processSimulationError(msg.id, msg.signatures[0], res)
+			if len(msg.signatures) == 0 {
+				continue
+			}
+			// Process error to determine the corresponding state and type.
+			// Certain errors can be considered not to be failures during simulation to allow the process to continue
+			if txState, errType := txm.processError(msg.signatures[0], res.Err, true); errType != NoFailure {
+				id, err := txm.txs.OnError(msg.signatures[0], txm.cfg.TxRetentionTimeout(), txState, errType)
+				if err != nil {
+					txm.lggr.Errorw(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "err", err)
+				} else {
+					txm.lggr.Debugw(fmt.Sprintf("marking transaction as %s", txState.String()), "id", id, "signature", msg.signatures[0], "error", res.Err)
+				}
 			}
 		}
 	}
@@ -696,7 +709,7 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	// Perform compute unit limit estimation after storing transaction
 	// If error found during simulation, transaction should be in storage to mark accordingly
 	if cfg.EstimateComputeUnitLimit {
-		computeUnitLimit, err := txm.EstimateComputeUnitLimit(ctx, tx)
+		computeUnitLimit, err := txm.EstimateComputeUnitLimit(ctx, tx, id)
 		if err != nil {
 			return fmt.Errorf("transaction failed simulation: %w", err)
 		}
@@ -851,15 +864,18 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 		// blockhash not found when simulating, occurs when network bank has not seen the given blockhash or tx is too old
 		// let confirmation process clean up
 		case strings.Contains(errStr, "BlockhashNotFound"):
-			txm.lggr.Debugw("simulate: BlockhashNotFound", logValues...)
-		// transaction will encounter execution error/revert, mark as reverted to remove from confirmation + retry
-		case strings.Contains(errStr, "InstructionError"):
-			_, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), TxFailSimRevert) // cancel retry
-			if err != nil {
-				logValues = append(logValues, "stateTransitionErr", err)
+			txm.lggr.Debugw("BlockhashNotFound", logValues...)
+			// return no failure for this error when simulating to allow later send/retry code to assign a proper blockhash
+			// in case the one provided by the caller is outdated
+			if simulation {
+				return txState, NoFailure
 			}
-			txm.lggr.Debugw("simulate: InstructionError", logValues...)
-		// transaction is already processed in the chain, letting txm confirmation handle
+			return Errored, errType
+		// transaction will encounter execution error/revert
+		case strings.Contains(errStr, "InstructionError"):
+			txm.lggr.Debugw("InstructionError", logValues...)
+			return Errored, errType
+		// transaction is already processed in the chain
 		case strings.Contains(errStr, "AlreadyProcessed"):
 			txm.lggr.Debugw("AlreadyProcessed", logValues...)
 			// return no failure for this error when simulating in case there is a race between broadcast and simulation

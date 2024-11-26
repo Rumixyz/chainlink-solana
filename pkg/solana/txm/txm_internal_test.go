@@ -798,7 +798,7 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 			LastValidBlockHeight: 100,
 			Blockhash:            solana.Hash{},
 		},
-	}, nil).Once()
+	}, nil)
 
 	t.Run("happyPath", func(t *testing.T) {
 		// Test tx is not discarded due to confirm timeout and tracked to finalization

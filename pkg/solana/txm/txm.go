@@ -506,7 +506,8 @@ func (txm *Txm) handleNotFoundSignatureStatus(sig solanaGo.Signature) {
 // Otherwise, it marks the transaction as errored.
 func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
 	// We want to rebroadcast rather than drop tx if expiration rebroadcast is enabled when blockhash was not found.
-	if status.Err != nil && status.Err == client.ErrBlockhashNotFound && txm.cfg.TxExpirationRebroadcast() {
+	// converting error to string so we are able to check if it contains the error message.
+	if status.Err != nil && strings.Contains(fmt.Sprintf("%v", status.Err), "BlockhashNotFound") && txm.cfg.TxExpirationRebroadcast() {
 		return
 	}
 

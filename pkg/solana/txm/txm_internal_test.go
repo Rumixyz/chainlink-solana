@@ -161,15 +161,14 @@ func TestTxm(t *testing.T) {
 					return out
 				}, nil,
 			)
-
+			mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+				Value: &rpc.LatestBlockhashResult{
+					LastValidBlockHeight: 100,
+					Blockhash:            solana.Hash{},
+				},
+			}, nil)
 			// happy path (send => simulate success => tx: nil => tx: processed => tx: confirmed => finalized => done)
 			t.Run("happyPath", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				sig := randomSignature(t)
 				tx, signed := getTx(t, 0, mkey)
 				var wg sync.WaitGroup
@@ -235,12 +234,6 @@ func TestTxm(t *testing.T) {
 
 			// fail on initial transmit (RPC immediate rejects)
 			t.Run("fail_initialTx", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 1, mkey)
 				var wg sync.WaitGroup
 				wg.Add(1)
@@ -268,12 +261,6 @@ func TestTxm(t *testing.T) {
 			})
 			// tx fails simulation (simulation error)
 			t.Run("fail_simulation", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 2, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
@@ -303,12 +290,6 @@ func TestTxm(t *testing.T) {
 
 			// tx fails simulation (rpc error, timeout should clean up b/c sig status will be nil)
 			t.Run("fail_simulation_confirmNil", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 3, mkey)
 				sig := randomSignature(t)
 				retry0 := randomSignature(t)
@@ -348,12 +329,6 @@ func TestTxm(t *testing.T) {
 			// tx fails simulation with an InstructionError (indicates reverted execution)
 			// manager should cancel sending retry immediately + increment reverted prom metric
 			t.Run("fail_simulation_instructionError", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 4, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
@@ -393,12 +368,6 @@ func TestTxm(t *testing.T) {
 			// tx fails simulation with BlockHashNotFound error
 			// txm should continue to finalize tx (in this case it will succeed)
 			t.Run("fail_simulation_blockhashNotFound", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 5, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
@@ -449,12 +418,6 @@ func TestTxm(t *testing.T) {
 			// tx fails simulation with AlreadyProcessed error
 			// txm should continue to confirm tx (in this case it will revert)
 			t.Run("fail_simulation_alreadyProcessed", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 6, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
@@ -495,12 +458,6 @@ func TestTxm(t *testing.T) {
 
 			// tx passes sim, never passes processed (timeout should cleanup)
 			t.Run("fail_confirm_processed", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 7, mkey)
 				sig := randomSignature(t)
 				retry0 := randomSignature(t)
@@ -545,12 +502,6 @@ func TestTxm(t *testing.T) {
 
 			// tx passes sim, shows processed, moves to nil (timeout should cleanup)
 			t.Run("fail_confirm_processedToNil", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 8, mkey)
 				sig := randomSignature(t)
 				retry0 := randomSignature(t)
@@ -602,12 +553,6 @@ func TestTxm(t *testing.T) {
 
 			// tx passes sim, errors on confirm
 			t.Run("fail_confirm_revert", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 9, mkey)
 				sig := randomSignature(t)
 				var wg sync.WaitGroup
@@ -645,12 +590,6 @@ func TestTxm(t *testing.T) {
 
 			// tx passes sim, first retried TXs get dropped
 			t.Run("success_retryTx", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				tx, signed := getTx(t, 10, mkey)
 				sig := randomSignature(t)
 				retry0 := randomSignature(t)
@@ -697,12 +636,6 @@ func TestTxm(t *testing.T) {
 
 			// fee bumping disabled
 			t.Run("feeBumpingDisabled", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				sig := randomSignature(t)
 				tx, signed := getTx(t, 11, mkey)
 
@@ -763,12 +696,6 @@ func TestTxm(t *testing.T) {
 
 			// compute unit limit disabled
 			t.Run("computeUnitLimitDisabled", func(t *testing.T) {
-				mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: 100,
-						Blockhash:            solana.Hash{},
-					},
-				}, nil).Once()
 				sig := randomSignature(t)
 				tx, signed := getTx(t, 12, mkey)
 
@@ -1069,14 +996,14 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 			return out
 		}, nil,
 	)
+	mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
+		Value: &rpc.LatestBlockhashResult{
+			LastValidBlockHeight: 100,
+			Blockhash:            solana.Hash{},
+		},
+	}, nil)
 
 	t.Run("simulation_succeeds", func(t *testing.T) {
-		mc.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-			Value: &rpc.LatestBlockhashResult{
-				LastValidBlockHeight: 100,
-				Blockhash:            solana.Hash{},
-			},
-		}, nil).Once()
 		// Test tx is not discarded due to confirm timeout and tracked to finalization
 		// use unique val across tests to avoid collision during mocking
 		tx, signed := getTx(t, 1, mkey)
@@ -1277,7 +1204,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Chain.FeeEstimatorMode = &estimator
 	cfg.Chain.TxConfirmTimeout = relayconfig.MustNewDuration(5 * time.Second)
-	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(10 * time.Second) // Enable retention to keep transactions after finality and be able to check.
+	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(10 * time.Second) // Enable retention to keep transactions after finality and be able to check their statuses.
 	lggr := logger.Test(t)
 	ctx := tests.Context(t)
 
@@ -1314,7 +1241,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			).Maybe()
 		}
 
-		mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil)
+		mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
 		if statuses != nil {
 			mc.On("SignatureStatuses", mock.Anything, mock.AnythingOfType("[]solana.Signature")).Return(
 				func(_ context.Context, sigs []solana.Signature) ([]*rpc.SignatureStatusesResult, error) {
@@ -1342,6 +1269,9 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 
 		return txm, mc, mkey
 	}
+
+	// tracking prom metrics
+	prom := soltxmProm{id: id}
 
 	t.Run("WithRebroadcast", func(t *testing.T) {
 		txExpirationRebroadcast := true
@@ -1410,7 +1340,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txID := "test-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
 		wg.Wait()
-		time.Sleep(2 * time.Second) // Sleep to allow for rebroadcasting
+		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
+
+		// check prom metric
+		prom.confirmed++
+		prom.finalized++
+		prom.assertEqual(t)
 
 		// Check that transaction for txID has been finalized and rebroadcasted
 		status, err := txm.GetTransactionStatus(ctx, txID)
@@ -1458,7 +1393,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txID := "test-no-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
 		wg.Wait()
-		time.Sleep(2 * time.Second) // Sleep to ensure no rebroadcast
+		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
+
+		// check prom metric
+		prom.drop++
+		prom.error++
+		prom.assertEqual(t)
 
 		// Check that transaction for txID has not been finalized and has not been rebroadcasted
 		status, err := txm.GetTransactionStatus(ctx, txID)
@@ -1476,7 +1416,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		slotHeightFunc := func() (uint64, error) {
 			return uint64(1500), nil
 		}
-		// Mock LatestBlockhash to return a invalid blockhash in the first 3 attempts (initial + 2 rebroadcasts)
+		// Mock LatestBlockhash to return an invalid blockhash in the first 3 attempts (initial + 2 rebroadcasts)
 		// the last one is valid because it is greater than the slotHeight
 		expectedRebroadcastsCount := 3
 		callCount := 0
@@ -1533,7 +1473,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txID := "test-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
 		wg.Wait()
-		time.Sleep(2 * time.Second) // Sleep to allow for rebroadcasting
+		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
+
+		// check prom metric
+		prom.confirmed++
+		prom.finalized++
+		prom.assertEqual(t)
 
 		// Check that transaction for txID has been finalized and rebroadcasted
 		status, err := txm.GetTransactionStatus(ctx, txID)
@@ -1590,7 +1535,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txID := "test-confirmed-before-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
 		wg.Wait()
-		time.Sleep(1 * time.Second) // Allow for processing
+		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
+
+		// check prom metric
+		prom.confirmed++
+		prom.finalized++
+		prom.assertEqual(t)
 
 		// Check that transaction has been finalized without rebroadcast
 		status, err := txm.GetTransactionStatus(ctx, txID)
@@ -1632,8 +1582,15 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return sig1, nil
 		}
 
+		var wg sync.WaitGroup
+		wg.Add(1)
+		count := 0
 		statuses[sig1] = func() *rpc.SignatureStatusesResult {
+			defer func() { count++ }()
 			// Transaction remains unconfirmed
+			if count == 1 {
+				wg.Done()
+			}
 			return nil
 		}
 
@@ -1641,17 +1598,19 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast-error"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
-		time.Sleep(2 * time.Second) // Allow for processing
+		wg.Wait()
+		waitFor(t, cfg.TxConfirmTimeout(), txm, prom, empty)
 
-		// TODO: Add check that transaction status is failed due to rebroadcast error when prebroadcast is implemented and we have an error in sendWithRetry
+		// check prom metric
+		prom.drop++
+		prom.error++
+		prom.assertEqual(t)
+
+		// Transaction should be moved to failed after trying to rebroadcast and failing to get confirmations
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
-		require.Equal(t, types.Pending, status) // TODO: Change to Failed when prebroadcast error is implemented
+		require.Equal(t, types.Failed, status)
 		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, 1, rebroadcastCount)                       // Attempted to rebroadcast 1 time but encountered error
-		time.Sleep(2 * time.Second)                                 // Allow for processing
-		rebroadcastCount, err = txm.txs.GetTxRebroadcastCount(txID) // rebroadcast should still be 1. We should not be rebroadcasting.
 		require.NoError(t, err)
 		require.Equal(t, 1, rebroadcastCount)
 	})

@@ -133,7 +133,6 @@ func traversePath(data any, path []string) ([]any, error) {
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
-	fmt.Printf("Current path: %v, Current value type: %v\n", path, val.Kind())
 
 	switch val.Kind() {
 	case reflect.Struct:

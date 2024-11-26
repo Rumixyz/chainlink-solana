@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
+	solanaGo "github.com/gagliardetto/solana-go"
+	solanaGoRpc "github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -29,8 +29,8 @@ import (
 )
 
 func NewTestMsg() (msg pendingTx) {
-	tx := solana.Transaction{}
-	tx.Message.AccountKeys = append(tx.Message.AccountKeys, solana.PublicKey{})
+	tx := solanaGo.Transaction{}
+	tx.Message.AccountKeys = append(tx.Message.AccountKeys, solanaGo.PublicKey{})
 	msg.tx = tx
 	return msg
 }
@@ -82,19 +82,19 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		assert.Contains(t, lastLog.Message, "stopped tx retry") // assert that all retry goroutines exit successfully
 	}
 	client := clientmocks.NewReaderWriter(t)
-	client.On("LatestBlockhash", mock.Anything).Return(&rpc.GetLatestBlockhashResult{
-		Value: &rpc.LatestBlockhashResult{
+	client.On("LatestBlockhash", mock.Anything).Return(&solanaGoRpc.GetLatestBlockhashResult{
+		Value: &solanaGoRpc.LatestBlockhashResult{
 			LastValidBlockHeight: 100,
-			Blockhash:            solana.Hash{},
+			Blockhash:            solanaGo.Hash{},
 		},
 	}, nil)
 
 	t.Run("delay in rebroadcasting tx", func(t *testing.T) {
-		txs := map[string]solana.Signature{}
+		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
 			// build new sig if tx is different
-			func(_ context.Context, tx *solana.Transaction) solana.Signature {
+			func(_ context.Context, tx *solanaGo.Transaction) solanaGo.Signature {
 				strTx := tx.String()
 
 				// if exists, slow down client response to trigger race
@@ -116,7 +116,7 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 				sig := make([]byte, 16)
 				_, err := rand.Read(sig)
 				require.NoError(t, err)
-				txs[strTx] = solana.SignatureFromBytes(sig)
+				txs[strTx] = solanaGo.SignatureFromBytes(sig)
 
 				return txs[strTx]
 			},
@@ -126,11 +126,11 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 	})
 
 	t.Run("delay in broadcasting new tx", func(t *testing.T) {
-		txs := map[string]solana.Signature{}
+		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
 			// build new sig if tx is different
-			func(_ context.Context, tx *solana.Transaction) solana.Signature {
+			func(_ context.Context, tx *solanaGo.Transaction) solanaGo.Signature {
 				strTx := tx.String()
 
 				lock.Lock()
@@ -143,7 +143,7 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 				sig := make([]byte, 16)
 				_, err := rand.Read(sig)
 				require.NoError(t, err)
-				txs[strTx] = solana.SignatureFromBytes(sig)
+				txs[strTx] = solanaGo.SignatureFromBytes(sig)
 				lock.Unlock()
 
 				// don't lock on delay
@@ -160,11 +160,11 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 	})
 
 	t.Run("overlapping bumping tx", func(t *testing.T) {
-		txs := map[string]solana.Signature{}
+		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex
 		client.On("SendTx", mock.Anything, mock.Anything).Return(
 			// build new sig if tx is different
-			func(_ context.Context, tx *solana.Transaction) solana.Signature {
+			func(_ context.Context, tx *solanaGo.Transaction) solanaGo.Signature {
 				strTx := tx.String()
 
 				lock.Lock()
@@ -177,7 +177,7 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 				sig := make([]byte, 16)
 				_, err := rand.Read(sig)
 				require.NoError(t, err)
-				txs[strTx] = solana.SignatureFromBytes(sig)
+				txs[strTx] = solanaGo.SignatureFromBytes(sig)
 
 				triggerDelay := len(txs) == 2
 				lock.Unlock()
@@ -209,31 +209,31 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		msg0 := NewTestMsg()
 		require.NoError(t, fees.SetComputeUnitPrice(&msg0.tx, 0))
 		require.NoError(t, fees.SetComputeUnitLimit(&msg0.tx, 200_000))
-		msg0.tx.Signatures = make([]solana.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg0.tx).Return(solana.Signature{1}, nil)
+		msg0.tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg0.tx).Return(solanaGo.Signature{1}, nil)
 
 		// init bump tx fails, rebroadcast is successful
 		msg1 := NewTestMsg()
 		require.NoError(t, fees.SetComputeUnitPrice(&msg1.tx, 1))
 		require.NoError(t, fees.SetComputeUnitLimit(&msg1.tx, 200_000))
-		msg1.tx.Signatures = make([]solana.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg1.tx).Return(solana.Signature{}, fmt.Errorf("BUMP FAILED"))
-		client.On("SendTx", mock.Anything, &msg1.tx).Return(solana.Signature{2}, nil)
+		msg1.tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg1.tx).Return(solanaGo.Signature{}, fmt.Errorf("BUMP FAILED"))
+		client.On("SendTx", mock.Anything, &msg1.tx).Return(solanaGo.Signature{2}, nil)
 
 		// init bump tx success, rebroadcast fails
 		msg2 := NewTestMsg()
 		require.NoError(t, fees.SetComputeUnitPrice(&msg2.tx, 2))
 		require.NoError(t, fees.SetComputeUnitLimit(&msg2.tx, 200_000))
-		msg2.tx.Signatures = make([]solana.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg2.tx).Return(solana.Signature{3}, nil)
-		client.On("SendTx", mock.Anything, &msg2.tx).Return(solana.Signature{}, fmt.Errorf("REBROADCAST FAILED"))
+		msg2.tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg2.tx).Return(solanaGo.Signature{3}, nil)
+		client.On("SendTx", mock.Anything, &msg2.tx).Return(solanaGo.Signature{}, fmt.Errorf("REBROADCAST FAILED"))
 
 		// always successful
 		msg3 := NewTestMsg()
 		require.NoError(t, fees.SetComputeUnitPrice(&msg3.tx, 4))
 		require.NoError(t, fees.SetComputeUnitLimit(&msg3.tx, 200_000))
-		msg3.tx.Signatures = make([]solana.Signature, 1)
-		client.On("SendTx", mock.Anything, &msg3.tx).Return(solana.Signature{4}, nil)
+		msg3.tx.Signatures = make([]solanaGo.Signature, 1)
+		client.On("SendTx", mock.Anything, &msg3.tx).Return(solanaGo.Signature{4}, nil)
 		testRunner(t, client)
 	})
 }

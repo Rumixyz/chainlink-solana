@@ -1,6 +1,6 @@
 //go:build integration
 
-package txm
+package txm_test
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 	solanaClient "github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 	keyMocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
 
 	relayconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -71,7 +72,7 @@ func TestTxm_Integration(t *testing.T) {
 			client, err := solanaClient.NewClient(url, cfg, 2*time.Second, lggr)
 			require.NoError(t, err)
 			loader := utils.NewLazyLoad(func() (solanaClient.ReaderWriter, error) { return client, nil })
-			txm := NewTxm("localnet", loader, nil, cfg, mkey, lggr)
+			txm := txm.NewTxm("localnet", loader, nil, cfg, mkey, lggr)
 
 			// track initial balance
 			initBal, err := client.Balance(ctx, pubKey)

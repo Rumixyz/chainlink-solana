@@ -589,10 +589,9 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			continue
 		}
 		rebroadcastTx := pendingTx{
-			tx:               tx.tx,
-			cfg:              tx.cfg,
-			id:               tx.id, // using same id in case it was set by caller and we need to maintain it.
-			rebroadcastCount: tx.rebroadcastCount + 1,
+			tx:  tx.tx,
+			cfg: tx.cfg,
+			id:  tx.id, // using same id in case it was set by caller and we need to maintain it.
 		}
 		// call sendWithRetry directly to avoid enqueuing
 		_, _, _, sendErr := txm.sendWithRetry(ctx, rebroadcastTx)

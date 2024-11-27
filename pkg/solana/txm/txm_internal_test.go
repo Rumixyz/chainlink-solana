@@ -1362,13 +1362,11 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		prom.finalized++
 		prom.assertEqual(t)
 
-		// Check that transaction for txID has been finalized and rebroadcasted
+		// Check that transaction for txID has been finalized and rebroadcasted 1 time.
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
 		require.Equal(t, types.Finalized, status)
-		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, 1, rebroadcastCount)
+		require.Equal(t, 1, callCount-1) // -1 because the first call is not a rebroadcast
 	})
 
 	t.Run("WithoutRebroadcast", func(t *testing.T) {
@@ -1376,7 +1374,9 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
 		// mocking the call within sendWithRetry. Rebroadcast is off, so we won't compare it against the slotHeight.
+		callCount := 0
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
+			defer func() { callCount++ }()
 			return &rpc.GetLatestBlockhashResult{
 				Value: &rpc.LatestBlockhashResult{
 					LastValidBlockHeight: uint64(2000),
@@ -1419,9 +1419,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
 		require.Equal(t, types.Failed, status)
-		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, 0, rebroadcastCount)
+		require.Equal(t, 0, callCount-1) // -1 because the first call is not a rebroadcast
 	})
 
 	t.Run("WithMultipleRebroadcast", func(t *testing.T) {
@@ -1495,13 +1493,11 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		prom.finalized++
 		prom.assertEqual(t)
 
-		// Check that transaction for txID has been finalized and rebroadcasted
+		// Check that transaction for txID has been finalized and rebroadcasted multiple times.
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
 		require.Equal(t, types.Finalized, status)
-		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, expectedRebroadcastsCount, rebroadcastCount)
+		require.Equal(t, expectedRebroadcastsCount, callCount-1)
 	})
 
 	t.Run("ConfirmedBeforeRebroadcast", func(t *testing.T) {
@@ -1517,7 +1513,10 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		slotHeightFunc := func() (uint64, error) {
 			return uint64(1500), nil
 		}
+
+		callCount := 0
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
+			defer func() { callCount++ }()
 			return &rpc.GetLatestBlockhashResult{
 				Value: &rpc.LatestBlockhashResult{
 					LastValidBlockHeight: uint64(1000),
@@ -1561,9 +1560,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
 		require.Equal(t, types.Finalized, status)
-		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, 0, rebroadcastCount)
+		require.Equal(t, 0, callCount-1) // -1 because the first call is not a rebroadcast
 	})
 
 	t.Run("RebroadcastWithError", func(t *testing.T) {
@@ -1621,12 +1618,10 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		prom.error++
 		prom.assertEqual(t)
 
-		// Transaction should be moved to failed after trying to rebroadcast and failing to get confirmations
+		// Transaction should be moved to failed after trying to rebroadcast 1 time.
 		status, err := txm.GetTransactionStatus(ctx, txID)
 		require.NoError(t, err)
 		require.Equal(t, types.Failed, status)
-		rebroadcastCount, err := txm.txs.GetTxRebroadcastCount(txID)
-		require.NoError(t, err)
-		require.Equal(t, 1, rebroadcastCount)
+		require.Equal(t, 1, callCount-1) // -1 because the first call is not a rebroadcast
 	})
 }

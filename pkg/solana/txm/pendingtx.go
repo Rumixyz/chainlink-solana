@@ -47,8 +47,6 @@ type PendingTxContext interface {
 	GetTxState(id string) (TxState, error)
 	// TrimFinalizedErroredTxs removes transactions that have reached their retention time
 	TrimFinalizedErroredTxs() int
-	// GetTxRebroadcastCount returns the number of times a transaction has been rebroadcasted if found.
-	GetTxRebroadcastCount(id string) (int, error)
 }
 
 // finishedTx is used to store info required to track transactions to finality or error
@@ -57,7 +55,6 @@ type pendingTx struct {
 	cfg                  TxConfig
 	signatures           []solana.Signature
 	id                   string
-	rebroadcastCount     int
 	createTs             time.Time
 	state                TxState
 	lastValidBlockHeight uint64 // to track expiration
@@ -65,9 +62,8 @@ type pendingTx struct {
 
 // finishedTx is used to store minimal info specifically for finalized or errored transactions for external status checks
 type finishedTx struct {
-	retentionTs      time.Time
-	state            TxState
-	rebroadcastCount int
+	retentionTs time.Time
+	state       TxState
 }
 
 var _ PendingTxContext = &pendingTxContext{}
@@ -401,9 +397,8 @@ func (c *pendingTxContext) OnFinalized(sig solana.Signature, retentionTimeout ti
 			return id, nil
 		}
 		finalizedTx := finishedTx{
-			state:            Finalized,
-			retentionTs:      time.Now().Add(retentionTimeout),
-			rebroadcastCount: tx.rebroadcastCount,
+			state:       Finalized,
+			retentionTs: time.Now().Add(retentionTimeout),
 		}
 		// move transaction from confirmed to finalized map
 		c.finalizedErroredTxs[id] = finalizedTx
@@ -443,9 +438,8 @@ func (c *pendingTxContext) OnPrebroadcastError(id string, retentionTimeout time.
 			return "", ErrIDAlreadyExists
 		}
 		erroredTx := finishedTx{
-			state:            txState,
-			retentionTs:      time.Now().Add(retentionTimeout),
-			rebroadcastCount: tx.rebroadcastCount,
+			state:       txState,
+			retentionTs: time.Now().Add(retentionTimeout),
 		}
 		// add transaction to error map
 		c.finalizedErroredTxs[id] = erroredTx
@@ -510,9 +504,8 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 			return id, nil
 		}
 		erroredTx := finishedTx{
-			state:            txState,
-			retentionTs:      time.Now().Add(retentionTimeout),
-			rebroadcastCount: tx.rebroadcastCount,
+			state:       txState,
+			retentionTs: time.Now().Add(retentionTimeout),
 		}
 		// move transaction from broadcasted to error map
 		c.finalizedErroredTxs[id] = erroredTx
@@ -573,22 +566,6 @@ func (c *pendingTxContext) withWriteLock(fn func() (string, error)) (string, err
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	return fn()
-}
-
-// GetTxRebroadcastCount returns the number of times a transaction has been rebroadcasted if found.
-func (c *pendingTxContext) GetTxRebroadcastCount(id string) (int, error) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	if tx, exists := c.broadcastedProcessedTxs[id]; exists {
-		return tx.rebroadcastCount, nil
-	}
-	if tx, exists := c.confirmedTxs[id]; exists {
-		return tx.rebroadcastCount, nil
-	}
-	if tx, exists := c.finalizedErroredTxs[id]; exists {
-		return tx.rebroadcastCount, nil
-	}
-	return 0, fmt.Errorf("failed to find transaction for id: %s", id)
 }
 
 var _ PendingTxContext = &pendingTxContextWithProm{}
@@ -704,8 +681,4 @@ func (c *pendingTxContextWithProm) GetTxState(id string) (TxState, error) {
 
 func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() int {
 	return c.pendingTx.TrimFinalizedErroredTxs()
-}
-
-func (c *pendingTxContextWithProm) GetTxRebroadcastCount(id string) (int, error) {
-	return c.pendingTx.GetTxRebroadcastCount(id)
 }

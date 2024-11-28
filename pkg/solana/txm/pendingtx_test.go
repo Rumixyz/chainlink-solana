@@ -79,9 +79,9 @@ func TestPendingTxContext_new(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check it exists in signature map
-	id, exists := txs.sigToID[sig]
+	txInfo, exists := txs.sigToTxInfo[sig]
 	require.True(t, exists)
-	require.Equal(t, msg.id, id)
+	require.Equal(t, msg.id, txInfo.id)
 
 	// Check it exists in broadcasted map
 	tx, exists := txs.broadcastedProcessedTxs[msg.id]
@@ -119,12 +119,12 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check signature map
-		id, exists := txs.sigToID[sig1]
+		txInfo, exists := txs.sigToTxInfo[sig1]
 		require.True(t, exists)
-		require.Equal(t, msg.id, id)
-		id, exists = txs.sigToID[sig2]
+		require.Equal(t, msg.id, txInfo.id)
+		txInfo, exists = txs.sigToTxInfo[sig2]
 		require.True(t, exists)
-		require.Equal(t, msg.id, id)
+		require.Equal(t, msg.id, txInfo.id)
 
 		// Check broadcasted map
 		tx, exists := txs.broadcastedProcessedTxs[msg.id]
@@ -211,9 +211,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 		require.Equal(t, msg.id, id)
 
 		// Check it exists in signature map
-		id, exists := txs.sigToID[sig]
+		txInfo, exists := txs.sigToTxInfo[sig]
 		require.True(t, exists)
-		require.Equal(t, msg.id, id)
+		require.Equal(t, msg.id, txInfo.id)
 
 		// Check it exists in broadcasted map
 		tx, exists := txs.broadcastedProcessedTxs[msg.id]
@@ -346,9 +346,9 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 		require.Equal(t, msg.id, id)
 
 		// Check it exists in signature map
-		id, exists := txs.sigToID[sig]
+		txInfo, exists := txs.sigToTxInfo[sig]
 		require.True(t, exists)
-		require.Equal(t, msg.id, id)
+		require.Equal(t, msg.id, txInfo.id)
 
 		// Check it does not exist in broadcasted map
 		_, exists = txs.broadcastedProcessedTxs[msg.id]
@@ -478,9 +478,9 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 		require.Equal(t, Finalized, tx.state)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig1]
+		_, exists = txs.sigToTxInfo[sig1]
 		require.False(t, exists)
-		_, exists = txs.sigToID[sig2]
+		_, exists = txs.sigToTxInfo[sig2]
 		require.False(t, exists)
 	})
 
@@ -528,9 +528,9 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 		require.Equal(t, Finalized, tx.state)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig1]
+		_, exists = txs.sigToTxInfo[sig1]
 		require.False(t, exists)
-		_, exists = txs.sigToID[sig2]
+		_, exists = txs.sigToTxInfo[sig2]
 		require.False(t, exists)
 	})
 
@@ -570,7 +570,7 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 		require.False(t, exists)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig1]
+		_, exists = txs.sigToTxInfo[sig1]
 		require.False(t, exists)
 	})
 
@@ -628,7 +628,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, Errored, tx.state)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig]
+		_, exists = txs.sigToTxInfo[sig]
 		require.False(t, exists)
 	})
 
@@ -666,7 +666,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, Errored, tx.state)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig]
+		_, exists = txs.sigToTxInfo[sig]
 		require.False(t, exists)
 	})
 
@@ -695,7 +695,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.Equal(t, FatallyErrored, tx.state)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig]
+		_, exists = txs.sigToTxInfo[sig]
 		require.False(t, exists)
 	})
 
@@ -730,7 +730,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		require.False(t, exists)
 
 		// Check sigs do no exist in signature map
-		_, exists = txs.sigToID[sig]
+		_, exists = txs.sigToTxInfo[sig]
 		require.False(t, exists)
 	})
 
@@ -879,9 +879,9 @@ func TestPendingTxContext_remove(t *testing.T) {
 	_, exists := txs.broadcastedProcessedTxs[broadcastedMsg.id]
 	require.False(t, exists)
 	// Check all signatures removed from sig map
-	_, exists = txs.sigToID[broadcastedSig1]
+	_, exists = txs.sigToTxInfo[broadcastedSig1]
 	require.False(t, exists)
-	_, exists = txs.sigToID[broadcastedSig2]
+	_, exists = txs.sigToTxInfo[broadcastedSig2]
 	require.False(t, exists)
 
 	// Remove processed transaction
@@ -892,7 +892,7 @@ func TestPendingTxContext_remove(t *testing.T) {
 	_, exists = txs.broadcastedProcessedTxs[processedMsg.id]
 	require.False(t, exists)
 	// Check all signatures removed from sig map
-	_, exists = txs.sigToID[processedSig]
+	_, exists = txs.sigToTxInfo[processedSig]
 	require.False(t, exists)
 
 	// Remove confirmed transaction
@@ -903,7 +903,7 @@ func TestPendingTxContext_remove(t *testing.T) {
 	_, exists = txs.confirmedTxs[confirmedMsg.id]
 	require.False(t, exists)
 	// Check all signatures removed from sig map
-	_, exists = txs.sigToID[confirmedSig]
+	_, exists = txs.sigToTxInfo[confirmedSig]
 	require.False(t, exists)
 
 	// Check remove cannot be called on finalized transaction

@@ -66,11 +66,16 @@ type finishedTx struct {
 	state       TxState
 }
 
+type txInfo struct {
+	id     string
+	status TxState
+}
+
 var _ PendingTxContext = &pendingTxContext{}
 
 type pendingTxContext struct {
-	cancelBy map[string]context.CancelFunc
-	sigToID  map[solana.Signature]string
+	cancelBy    map[string]context.CancelFunc
+	sigToTxInfo map[solana.Signature]txInfo
 
 	broadcastedProcessedTxs map[string]pendingTx  // broadcasted and processed transactions that may require retry and bumping
 	confirmedTxs            map[string]pendingTx  // transactions that require monitoring for re-org
@@ -81,8 +86,8 @@ type pendingTxContext struct {
 
 func newPendingTxContext() *pendingTxContext {
 	return &pendingTxContext{
-		cancelBy: map[string]context.CancelFunc{},
-		sigToID:  map[solana.Signature]string{},
+		cancelBy:    map[string]context.CancelFunc{},
+		sigToTxInfo: map[solana.Signature]txInfo{},
 
 		broadcastedProcessedTxs: map[string]pendingTx{},
 		confirmedTxs:            map[string]pendingTx{},
@@ -93,7 +98,7 @@ func newPendingTxContext() *pendingTxContext {
 func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel context.CancelFunc) error {
 	err := c.withReadLock(func() error {
 		// validate signature does not exist
-		if _, exists := c.sigToID[sig]; exists {
+		if _, exists := c.sigToTxInfo[sig]; exists {
 			return ErrSigAlreadyExists
 		}
 		// validate id does not exist
@@ -108,7 +113,7 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 
 	// upgrade to write lock if sig or id do not exist
 	_, err = c.withWriteLock(func() (string, error) {
-		if _, exists := c.sigToID[sig]; exists {
+		if _, exists := c.sigToTxInfo[sig]; exists {
 			return "", ErrSigAlreadyExists
 		}
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
@@ -116,7 +121,7 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		}
 		// save cancel func
 		c.cancelBy[tx.id] = cancel
-		c.sigToID[sig] = tx.id
+		c.sigToTxInfo[sig] = txInfo{id: tx.id, status: Broadcasted}
 		// add signature to tx
 		tx.signatures = append(tx.signatures, sig)
 		tx.createTs = time.Now()
@@ -131,7 +136,7 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 	err := c.withReadLock(func() error {
 		// signature already exists
-		if _, exists := c.sigToID[sig]; exists {
+		if _, exists := c.sigToTxInfo[sig]; exists {
 			return ErrSigAlreadyExists
 		}
 		// new signatures should only be added for broadcasted transactions
@@ -147,13 +152,13 @@ func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 
 	// upgrade to write lock if sig does not exist
 	_, err = c.withWriteLock(func() (string, error) {
-		if _, exists := c.sigToID[sig]; exists {
+		if _, exists := c.sigToTxInfo[sig]; exists {
 			return "", ErrSigAlreadyExists
 		}
 		if _, exists := c.broadcastedProcessedTxs[id]; !exists {
 			return "", ErrTransactionNotFound
 		}
-		c.sigToID[sig] = id
+		c.sigToTxInfo[sig] = txInfo{id: id, status: Broadcasted}
 		tx := c.broadcastedProcessedTxs[id]
 		// save new signature
 		tx.signatures = append(tx.signatures, sig)
@@ -169,12 +174,12 @@ func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 func (c *pendingTxContext) Remove(sig solana.Signature) (id string, err error) {
 	err = c.withReadLock(func() error {
 		// check if already removed
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
-		_, broadcastedIDExists := c.broadcastedProcessedTxs[id]
-		_, confirmedIDExists := c.confirmedTxs[id]
+		_, broadcastedIDExists := c.broadcastedProcessedTxs[txInfo.id]
+		_, confirmedIDExists := c.confirmedTxs[txInfo.id]
 		// transcation does not exist in tx maps
 		if !broadcastedIDExists && !confirmedIDExists {
 			return ErrTransactionNotFound
@@ -187,38 +192,38 @@ func (c *pendingTxContext) Remove(sig solana.Signature) (id string, err error) {
 
 	// upgrade to write lock if sig does not exist
 	return c.withWriteLock(func() (string, error) {
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
-			return id, ErrSigDoesNotExist
+			return txInfo.id, ErrSigDoesNotExist
 		}
 		var tx pendingTx
-		if tempTx, exists := c.broadcastedProcessedTxs[id]; exists {
+		if tempTx, exists := c.broadcastedProcessedTxs[txInfo.id]; exists {
 			tx = tempTx
-			delete(c.broadcastedProcessedTxs, id)
+			delete(c.broadcastedProcessedTxs, txInfo.id)
 		}
-		if tempTx, exists := c.confirmedTxs[id]; exists {
+		if tempTx, exists := c.confirmedTxs[txInfo.id]; exists {
 			tx = tempTx
-			delete(c.confirmedTxs, id)
+			delete(c.confirmedTxs, txInfo.id)
 		}
 
 		// call cancel func + remove from map
-		if cancel, exists := c.cancelBy[id]; exists {
+		if cancel, exists := c.cancelBy[txInfo.id]; exists {
 			cancel() // cancel context
-			delete(c.cancelBy, id)
+			delete(c.cancelBy, txInfo.id)
 		}
 
 		// remove all signatures associated with transaction from sig map
 		for _, s := range tx.signatures {
-			delete(c.sigToID, s)
+			delete(c.sigToTxInfo, s)
 		}
-		return id, nil
+		return txInfo.id, nil
 	})
 }
 
 func (c *pendingTxContext) ListAll() []solana.Signature {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return maps.Keys(c.sigToID)
+	return maps.Keys(c.sigToTxInfo)
 }
 
 // ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
@@ -243,14 +248,14 @@ func (c *pendingTxContext) Expired(sig solana.Signature, confirmationTimeout tim
 	if confirmationTimeout == 0 {
 		return false
 	}
-	id, exists := c.sigToID[sig]
+	txInfo, exists := c.sigToTxInfo[sig]
 	if !exists {
 		return false // return expired = false if timestamp does not exist (likely cleaned up by something else previously)
 	}
-	if tx, exists := c.broadcastedProcessedTxs[id]; exists {
+	if tx, exists := c.broadcastedProcessedTxs[txInfo.id]; exists {
 		return time.Since(tx.createTs) > confirmationTimeout
 	}
-	if tx, exists := c.confirmedTxs[id]; exists {
+	if tx, exists := c.confirmedTxs[txInfo.id]; exists {
 		return time.Since(tx.createTs) > confirmationTimeout
 	}
 	return false // return expired = false if tx does not exist (likely cleaned up by something else previously)
@@ -259,12 +264,12 @@ func (c *pendingTxContext) Expired(sig solana.Signature, confirmationTimeout tim
 func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 	err := c.withReadLock(func() error {
 		// validate if sig exists
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
 		// Transactions should only move to processed from broadcasted
-		tx, exists := c.broadcastedProcessedTxs[id]
+		tx, exists := c.broadcastedProcessedTxs[txInfo.id]
 		if !exists {
 			return ErrTransactionNotFound
 		}
@@ -280,35 +285,35 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 
 	// upgrade to write lock if sig and id exist
 	return c.withWriteLock(func() (string, error) {
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
-			return id, ErrSigDoesNotExist
+			return txInfo.id, ErrSigDoesNotExist
 		}
-		tx, exists := c.broadcastedProcessedTxs[id]
+		tx, exists := c.broadcastedProcessedTxs[txInfo.id]
 		if !exists {
-			return id, ErrTransactionNotFound
+			return txInfo.id, ErrTransactionNotFound
 		}
 		// update tx state to Processed
 		tx.state = Processed
 		// save updated tx back to the broadcasted map
-		c.broadcastedProcessedTxs[id] = tx
-		return id, nil
+		c.broadcastedProcessedTxs[txInfo.id] = tx
+		return txInfo.id, nil
 	})
 }
 
 func (c *pendingTxContext) OnConfirmed(sig solana.Signature) (string, error) {
 	err := c.withReadLock(func() error {
 		// validate if sig exists
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
 		// Check if transaction already in confirmed state
-		if tx, exists := c.confirmedTxs[id]; exists && tx.state == Confirmed {
+		if tx, exists := c.confirmedTxs[txInfo.id]; exists && tx.state == Confirmed {
 			return ErrAlreadyInExpectedState
 		}
 		// Transactions should only move to confirmed from broadcasted/processed
-		if _, exists := c.broadcastedProcessedTxs[id]; !exists {
+		if _, exists := c.broadcastedProcessedTxs[txInfo.id]; !exists {
 			return ErrTransactionNotFound
 		}
 		return nil
@@ -319,38 +324,38 @@ func (c *pendingTxContext) OnConfirmed(sig solana.Signature) (string, error) {
 
 	// upgrade to write lock if id exists
 	return c.withWriteLock(func() (string, error) {
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
-			return id, ErrSigDoesNotExist
+			return txInfo.id, ErrSigDoesNotExist
 		}
-		tx, exists := c.broadcastedProcessedTxs[id]
+		tx, exists := c.broadcastedProcessedTxs[txInfo.id]
 		if !exists {
-			return id, ErrTransactionNotFound
+			return txInfo.id, ErrTransactionNotFound
 		}
 		// call cancel func + remove from map to stop the retry/bumping cycle for this transaction
-		if cancel, exists := c.cancelBy[id]; exists {
+		if cancel, exists := c.cancelBy[txInfo.id]; exists {
 			cancel() // cancel context
-			delete(c.cancelBy, id)
+			delete(c.cancelBy, txInfo.id)
 		}
 		// update tx state to Confirmed
 		tx.state = Confirmed
 		// move tx to confirmed map
-		c.confirmedTxs[id] = tx
+		c.confirmedTxs[txInfo.id] = tx
 		// remove tx from broadcasted map
-		delete(c.broadcastedProcessedTxs, id)
-		return id, nil
+		delete(c.broadcastedProcessedTxs, txInfo.id)
+		return txInfo.id, nil
 	})
 }
 
 func (c *pendingTxContext) OnFinalized(sig solana.Signature, retentionTimeout time.Duration) (string, error) {
 	err := c.withReadLock(func() error {
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
 		// Allow transactions to transition from broadcasted, processed, or confirmed state in case there are delays between status checks
-		_, broadcastedExists := c.broadcastedProcessedTxs[id]
-		_, confirmedExists := c.confirmedTxs[id]
+		_, broadcastedExists := c.broadcastedProcessedTxs[txInfo.id]
+		_, confirmedExists := c.confirmedTxs[txInfo.id]
 		if !broadcastedExists && !confirmedExists {
 			return ErrTransactionNotFound
 		}
@@ -362,47 +367,47 @@ func (c *pendingTxContext) OnFinalized(sig solana.Signature, retentionTimeout ti
 
 	// upgrade to write lock if id exists
 	return c.withWriteLock(func() (string, error) {
-		id, exists := c.sigToID[sig]
+		txInfo, exists := c.sigToTxInfo[sig]
 		if !exists {
-			return id, ErrSigDoesNotExist
+			return txInfo.id, ErrSigDoesNotExist
 		}
 		var tx, tempTx pendingTx
 		var broadcastedExists, confirmedExists bool
-		if tempTx, broadcastedExists = c.broadcastedProcessedTxs[id]; broadcastedExists {
+		if tempTx, broadcastedExists = c.broadcastedProcessedTxs[txInfo.id]; broadcastedExists {
 			tx = tempTx
 		}
-		if tempTx, confirmedExists = c.confirmedTxs[id]; confirmedExists {
+		if tempTx, confirmedExists = c.confirmedTxs[txInfo.id]; confirmedExists {
 			tx = tempTx
 		}
 		if !broadcastedExists && !confirmedExists {
-			return id, ErrTransactionNotFound
+			return txInfo.id, ErrTransactionNotFound
 		}
 		// call cancel func + remove from map to stop the retry/bumping cycle for this transaction
 		// cancel is expected to be called and removed when tx is confirmed but checked here too in case state is skipped
-		if cancel, exists := c.cancelBy[id]; exists {
+		if cancel, exists := c.cancelBy[txInfo.id]; exists {
 			cancel() // cancel context
-			delete(c.cancelBy, id)
+			delete(c.cancelBy, txInfo.id)
 		}
 		// delete from broadcasted map, if exists
-		delete(c.broadcastedProcessedTxs, id)
+		delete(c.broadcastedProcessedTxs, txInfo.id)
 		// delete from confirmed map, if exists
-		delete(c.confirmedTxs, id)
-		// remove all related signatures from the sigToID map to skip picking up this tx in the confirmation logic
+		delete(c.confirmedTxs, txInfo.id)
+		// remove all related signatures from the sigToTxInfo map to skip picking up this tx in the confirmation logic
 		for _, s := range tx.signatures {
-			delete(c.sigToID, s)
+			delete(c.sigToTxInfo, s)
 		}
 		// if retention duration is set to 0, delete transaction from storage
 		// otherwise, move to finalized map
 		if retentionTimeout == 0 {
-			return id, nil
+			return txInfo.id, nil
 		}
 		finalizedTx := finishedTx{
 			state:       Finalized,
 			retentionTs: time.Now().Add(retentionTimeout),
 		}
 		// move transaction from confirmed to finalized map
-		c.finalizedErroredTxs[id] = finalizedTx
-		return id, nil
+		c.finalizedErroredTxs[txInfo.id] = finalizedTx
+		return txInfo.id, nil
 	})
 }
 
@@ -450,14 +455,14 @@ func (c *pendingTxContext) OnPrebroadcastError(id string, retentionTimeout time.
 
 func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.Duration, txState TxState, _ TxErrType) (string, error) {
 	err := c.withReadLock(func() error {
-		id, sigExists := c.sigToID[sig]
+		txInfo, sigExists := c.sigToTxInfo[sig]
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
 		// transaction can transition from any non-finalized state
 		var broadcastedExists, confirmedExists bool
-		_, broadcastedExists = c.broadcastedProcessedTxs[id]
-		_, confirmedExists = c.confirmedTxs[id]
+		_, broadcastedExists = c.broadcastedProcessedTxs[txInfo.id]
+		_, confirmedExists = c.confirmedTxs[txInfo.id]
 		// transcation does not exist in any tx maps
 		if !broadcastedExists && !confirmedExists {
 			return ErrTransactionNotFound
@@ -470,16 +475,16 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 
 	// upgrade to write lock if sig exists
 	return c.withWriteLock(func() (string, error) {
-		id, exists := c.sigToID[sig]
+		txInfo, exists := c.sigToTxInfo[sig]
 		if !exists {
 			return "", ErrSigDoesNotExist
 		}
 		var tx, tempTx pendingTx
 		var broadcastedExists, confirmedExists bool
-		if tempTx, broadcastedExists = c.broadcastedProcessedTxs[id]; broadcastedExists {
+		if tempTx, broadcastedExists = c.broadcastedProcessedTxs[txInfo.id]; broadcastedExists {
 			tx = tempTx
 		}
-		if tempTx, confirmedExists = c.confirmedTxs[id]; confirmedExists {
+		if tempTx, confirmedExists = c.confirmedTxs[txInfo.id]; confirmedExists {
 			tx = tempTx
 		}
 		// transcation does not exist in any non-finalized maps
@@ -487,29 +492,29 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 			return "", ErrTransactionNotFound
 		}
 		// call cancel func + remove from map
-		if cancel, exists := c.cancelBy[id]; exists {
+		if cancel, exists := c.cancelBy[txInfo.id]; exists {
 			cancel() // cancel context
-			delete(c.cancelBy, id)
+			delete(c.cancelBy, txInfo.id)
 		}
 		// delete from broadcasted map, if exists
-		delete(c.broadcastedProcessedTxs, id)
+		delete(c.broadcastedProcessedTxs, txInfo.id)
 		// delete from confirmed map, if exists
-		delete(c.confirmedTxs, id)
-		// remove all related signatures from the sigToID map to skip picking up this tx in the confirmation logic
+		delete(c.confirmedTxs, txInfo.id)
+		// remove all related signatures from the sigToTxInfo map to skip picking up this tx in the confirmation logic
 		for _, s := range tx.signatures {
-			delete(c.sigToID, s)
+			delete(c.sigToTxInfo, s)
 		}
 		// if retention duration is set to 0, skip adding transaction to the errored map
 		if retentionTimeout == 0 {
-			return id, nil
+			return txInfo.id, nil
 		}
 		erroredTx := finishedTx{
 			state:       txState,
 			retentionTs: time.Now().Add(retentionTimeout),
 		}
 		// move transaction from broadcasted to error map
-		c.finalizedErroredTxs[id] = erroredTx
-		return id, nil
+		c.finalizedErroredTxs[txInfo.id] = erroredTx
+		return txInfo.id, nil
 	})
 }
 

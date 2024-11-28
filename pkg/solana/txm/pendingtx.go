@@ -30,7 +30,7 @@ type PendingTxContext interface {
 	ListAll() []solana.Signature
 	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
 	// Passing maxUint64 as currHeight will return all broadcasted txes.
-	ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx
+	ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int)
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -223,7 +223,7 @@ func (c *pendingTxContext) ListAll() []solana.Signature {
 
 // ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
 // Passing maxUint64 as currHeight will return all broadcasted txes.
-func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
+func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
@@ -232,7 +232,7 @@ func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pen
 			broadcastedTxes = append(broadcastedTxes, tx)
 		}
 	}
-	return broadcastedTxes
+	return broadcastedTxes, len(broadcastedTxes), len(c.broadcastedProcessedTxs)
 }
 
 // Expired returns if the timeout for trying to confirm a signature has been reached
@@ -623,7 +623,7 @@ func (c *pendingTxContextWithProm) ListAll() []solana.Signature {
 	return sigs
 }
 
-func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
+func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int) {
 	return c.pendingTx.ListAllExpiredBroadcastedTxs(currHeight)
 }
 

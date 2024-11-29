@@ -542,8 +542,8 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 	// Check if tx has been reorged by detecting if we had a status regression
 	// If so, we'll handle the reorg by updating the status in our in-memory layer and retrying the transaction for that sig.
 	currentTxState := convertStatus(status)
-	if isStatusRegression(txInfo.status, currentTxState) {
-		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.status, "currentStatus", currentTxState)
+	if isStatusRegression(txInfo.state, currentTxState) {
+		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		// Update status for the tx associated to this sig in our in-memory layer with last seen on-chain status.
 		_, err = txm.txs.UpdateSignatureStatus(sig, currentTxState)
 		if err != nil {

@@ -73,8 +73,8 @@ type finishedTx struct {
 }
 
 type txInfo struct {
-	id     string
-	status TxState
+	id    string
+	state TxState
 }
 
 var _ PendingTxContext = &pendingTxContext{}
@@ -127,7 +127,7 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		}
 		// save cancel func
 		c.cancelBy[tx.id] = cancel
-		c.sigToTxInfo[sig] = txInfo{id: tx.id, status: Broadcasted}
+		c.sigToTxInfo[sig] = txInfo{id: tx.id, state: Broadcasted}
 		// add signature to tx
 		tx.signatures = append(tx.signatures, sig)
 		tx.createTs = time.Now()
@@ -164,7 +164,7 @@ func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 		if _, exists := c.broadcastedProcessedTxs[id]; !exists {
 			return "", ErrTransactionNotFound
 		}
-		c.sigToTxInfo[sig] = txInfo{id: id, status: Broadcasted}
+		c.sigToTxInfo[sig] = txInfo{id: id, state: Broadcasted}
 		tx := c.broadcastedProcessedTxs[id]
 		// save new signature
 		tx.signatures = append(tx.signatures, sig)
@@ -299,9 +299,10 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 		if !exists {
 			return info.id, ErrTransactionNotFound
 		}
-		// update tx state to Processed
-		tx.state = Processed
-		// save updated tx back to the broadcasted map
+		// update sig and tx to Processed
+		info.state, tx.state = Processed, Processed
+		// save updated sig and tx back to the maps
+		c.sigToTxInfo[sig] = info
 		c.broadcastedProcessedTxs[info.id] = tx
 		return info.id, nil
 	})
@@ -343,8 +344,9 @@ func (c *pendingTxContext) OnConfirmed(sig solana.Signature) (string, error) {
 			cancel() // cancel context
 			delete(c.cancelBy, info.id)
 		}
-		// update tx state to Confirmed
-		tx.state = Confirmed
+		// update sig and tx state to Confirmed
+		info.state, tx.state = Confirmed, Confirmed
+		c.sigToTxInfo[sig] = info
 		// move tx to confirmed map
 		c.confirmedTxs[info.id] = tx
 		// remove tx from broadcasted map
@@ -585,7 +587,7 @@ func (c *pendingTxContext) UpdateSignatureStatus(sig solana.Signature, newStatus
 		if !exists {
 			return ErrSigDoesNotExist
 		}
-		if info.status == newStatus {
+		if info.state == newStatus {
 			return ErrAlreadyInExpectedState
 		}
 		return nil
@@ -600,11 +602,11 @@ func (c *pendingTxContext) UpdateSignatureStatus(sig solana.Signature, newStatus
 		if !exists {
 			return "", ErrSigDoesNotExist
 		}
-		if info.status == newStatus {
-			// Another goroutine might have updated the status; no action needed
+		if info.state == newStatus {
+			// no action needed
 			return "", ErrAlreadyInExpectedState
 		}
-		info.status = newStatus
+		info.state = newStatus
 		c.sigToTxInfo[sig] = info
 		return "", nil
 	})
@@ -654,8 +656,8 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 			return "", ErrTransactionNotFound
 		}
 
-		// Reset the signature and tx status for retrying
-		info.status, pTx.state = Broadcasted, Broadcasted
+		// Reset the signature status and tx for retrying
+		info.state, pTx.state = Broadcasted, Broadcasted
 		c.sigToTxInfo[sig] = info
 		return "", nil
 	})

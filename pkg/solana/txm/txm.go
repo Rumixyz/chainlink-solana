@@ -224,18 +224,11 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 
 	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
 
-	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
-	sigs := &signatureList{}
-	sigs.Allocate()
-	if initSetErr := sigs.Set(0, sig); initSetErr != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save initial signature in signature list: %w", initSetErr)
-	}
-
 	// pass in copy of msg (to build new tx with bumped fee) and broadcasted tx == initTx (to retry tx without bumping)
 	txm.done.Add(1)
 	go func() {
 		defer txm.done.Done()
-		txm.retryTx(ctx, msg, initTx, sigs)
+		txm.retryTx(ctx, msg, initTx, sig)
 	}()
 
 	// Return signed tx, id, signature for use in simulation
@@ -286,7 +279,15 @@ func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (sol
 // retryTx contains the logic for retrying the transaction, including exponential backoff and fee bumping.
 // Retries until context cancelled by timeout or called externally.
 // It uses handleRetry helper function to handle each retry attempt.
-func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.Transaction, sigs *signatureList) {
+func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.Transaction, sig solanaGo.Signature) {
+	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
+	sigs := &signatureList{}
+	sigs.Allocate()
+	if initSetErr := sigs.Set(0, sig); initSetErr != nil {
+		txm.lggr.Errorw("failed to save initial signature in signature list", "error", initSetErr)
+		return
+	}
+
 	deltaT := 1 // initial delay in ms
 	tick := time.After(0)
 	bumpCount := 0
@@ -463,6 +464,12 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 					continue
 				}
 
+				// check if a potential re-org has occurred for this sig and handle it
+				err := txm.handleReorg(ctx, sig, status)
+				if err != nil {
+					continue
+				}
+
 				switch status.ConfirmationStatus {
 				case rpc.ConfirmationStatusProcessed:
 					// if signature is processed, keep polling for confirmed or finalized status
@@ -520,6 +527,41 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 			txm.lggr.Debugw(fmt.Sprintf("marking transaction as %s", txState.String()), "id", id, "signature", sig, "error", status.Err, "status", status.ConfirmationStatus)
 		}
 	}
+}
+
+// handleReorg handles the case where a transaction signature is in a potential reorg state on-chain.
+// It updates the transaction state in the local memory and restarts the retry/bumping cycle for the transaction associated to that sig.
+func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) error {
+	// Retrieve last seen status for the tx associated to this sig in our in-memory layer.
+	txInfo, err := txm.txs.GetSignatureInfo(sig)
+	if err != nil {
+		txm.lggr.Errorw("failed to get signature info when checking for potential re-orgs", "signature", sig, "error", err)
+		return err
+	}
+
+	// Check if tx has been reorged by detecting if we had a status regression
+	// If so, we'll handle the reorg by updating the status in our in-memory layer and retrying the transaction for that sig.
+	currentTxState := convertStatus(status)
+	if isStatusRegression(txInfo.status, currentTxState) {
+		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.status, "currentStatus", currentTxState)
+		// Update status for the tx associated to this sig in our in-memory layer with last seen on-chain status.
+		_, err = txm.txs.UpdateSignatureStatus(sig, currentTxState)
+		if err != nil {
+			txm.lggr.Errorw("failed to update signature status", "signature", sig, "error", err)
+			return err
+		}
+
+		// Handle reorg in our in memory layer and retry transaction
+		pTx, err := txm.txs.OnReorg(sig)
+		if err != nil {
+			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
+			return err
+		}
+		retryCtx, _ := context.WithTimeout(ctx, pTx.cfg.Timeout) // TODO: Ask here. How should we handle the ctx?
+		txm.retryTx(retryCtx, pTx, pTx.tx, sig)
+	}
+
+	return nil
 }
 
 // handleProcessedSignatureStatus handles the case where a transaction signature is in the "processed" state on-chain.

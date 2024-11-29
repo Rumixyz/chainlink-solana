@@ -85,8 +85,8 @@ func TestTxm_Integration(t *testing.T) {
 			assert.Error(t, txm.Start(ctx))
 			createTx := func(signer solana.PublicKey, sender solana.PublicKey, receiver solana.PublicKey, amt uint64) *solana.Transaction {
 				// create transfer tx
-				hash, err := client.LatestBlockhash(ctx)
-				assert.NoError(t, err)
+				hash, hashErr := client.LatestBlockhash(ctx)
+				assert.NoError(t, hashErr)
 				tx, txErr := solana.NewTransaction(
 					[]solana.Instruction{
 						system.NewTransferInstruction(

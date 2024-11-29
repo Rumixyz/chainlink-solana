@@ -1329,23 +1329,21 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			// First transaction should be rebroadcasted.
 			if time.Since(nowTs) < cfg.TxConfirmTimeout()-2*time.Second {
 				return nil
-			} else {
-				// Second transaction should reach finalization.
-				sigStatusCallCount++
-				if sigStatusCallCount == 1 {
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-					}
-				} else if sigStatusCallCount == 2 {
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
-					}
-				} else {
-					wg.Done()
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusFinalized,
-					}
+			}
+			// Second transaction should reach finalization.
+			sigStatusCallCount++
+			if sigStatusCallCount == 1 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
 				}
+			} else if sigStatusCallCount == 2 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
+				}
+			}
+			wg.Done()
+			return &rpc.SignatureStatusesResult{
+				ConfirmationStatus: rpc.ConfirmationStatusFinalized,
 			}
 		}
 
@@ -1396,10 +1394,9 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			// Transaction remains unconfirmed and should not be rebroadcasted.
 			if time.Since(nowTs) < cfg.TxConfirmTimeout() {
 				return nil
-			} else {
-				wg.Done()
-				return nil
 			}
+			wg.Done()
+			return nil
 		}
 
 		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, nil, sendTxFunc, statuses)
@@ -1461,23 +1458,21 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			// transaction should be rebroadcasted multiple times.
 			if time.Since(nowTs) < cfg.TxConfirmTimeout()-2*time.Second {
 				return nil
-			} else {
-				// Second transaction should reach finalization.
-				sigStatusCallCount++
-				if sigStatusCallCount == 1 {
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-					}
-				} else if sigStatusCallCount == 2 {
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
-					}
-				} else {
-					wg.Done()
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusFinalized,
-					}
+			}
+			// Second transaction should reach finalization.
+			sigStatusCallCount++
+			if sigStatusCallCount == 1 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
 				}
+			} else if sigStatusCallCount == 2 {
+				return &rpc.SignatureStatusesResult{
+					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
+				}
+			}
+			wg.Done()
+			return &rpc.SignatureStatusesResult{
+				ConfirmationStatus: rpc.ConfirmationStatusFinalized,
 			}
 		}
 

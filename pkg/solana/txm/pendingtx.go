@@ -60,7 +60,6 @@ type pendingTx struct {
 	signatures           []solana.Signature
 	id                   string
 	createTs             time.Time
-	state                TxState
 	lastValidBlockHeight uint64 // to track expiration
 }
 
@@ -129,7 +128,6 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		// add signature to tx
 		tx.signatures = append(tx.signatures, sig)
 		tx.createTs = time.Now()
-		tx.state = Broadcasted
 		// save to the broadcasted map since transaction was just broadcasted
 		c.broadcastedProcessedTxs[tx.id] = tx
 		return "", nil
@@ -237,7 +235,7 @@ func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pen
 	defer c.lock.RUnlock()
 	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
 	for _, tx := range c.broadcastedProcessedTxs {
-		if tx.state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+		if tx.lastValidBlockHeight < currHeight {
 			broadcastedTxes = append(broadcastedTxes, tx)
 		}
 	}
@@ -273,12 +271,12 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 			return ErrSigDoesNotExist
 		}
 		// Transactions should only move to processed from broadcasted
-		tx, exists := c.broadcastedProcessedTxs[info.id]
+		_, exists := c.broadcastedProcessedTxs[info.id]
 		if !exists {
 			return ErrTransactionNotFound
 		}
-		// Check if tranasction already in processed state
-		if tx.state == Processed {
+		// Check if sig already in processed state
+		if info.state == Processed {
 			return ErrAlreadyInExpectedState
 		}
 		return nil
@@ -297,8 +295,8 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 		if !exists {
 			return info.id, ErrTransactionNotFound
 		}
-		// update sig and tx to Processed
-		info.state, tx.state = Processed, Processed
+		// update sig to Processed
+		info.state = Processed
 		// save updated sig and tx back to the maps
 		c.sigToTxInfo[sig] = info
 		c.broadcastedProcessedTxs[info.id] = tx
@@ -313,8 +311,8 @@ func (c *pendingTxContext) OnConfirmed(sig solana.Signature) (string, error) {
 		if !sigExists {
 			return ErrSigDoesNotExist
 		}
-		// Check if transaction already in confirmed state
-		if tx, exists := c.confirmedTxs[info.id]; exists && tx.state == Confirmed {
+		// Check if sig already in confirmed state
+		if _, exists := c.confirmedTxs[info.id]; exists && info.state == Confirmed {
 			return ErrAlreadyInExpectedState
 		}
 		// Transactions should only move to confirmed from broadcasted/processed
@@ -343,7 +341,7 @@ func (c *pendingTxContext) OnConfirmed(sig solana.Signature) (string, error) {
 			delete(c.cancelBy, info.id)
 		}
 		// update sig and tx state to Confirmed
-		info.state, tx.state = Confirmed, Confirmed
+		info.state = Confirmed
 		c.sigToTxInfo[sig] = info
 		// move tx to confirmed map
 		c.confirmedTxs[info.id] = tx
@@ -524,19 +522,56 @@ func (c *pendingTxContext) OnError(sig solana.Signature, retentionTimeout time.D
 	})
 }
 
+// GetTxState retrieves the aggregated state of a transaction based on all its signatures.
+// It performs state aggregation only for transactions in broadcastedProcessedTxs or confirmedTxs.
+// For transactions in finalizedErroredTxs, it directly returns the stored state.
 func (c *pendingTxContext) GetTxState(id string) (TxState, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
+
+	// Check if the transaction exists in broadcastedProcessedTxs
 	if tx, exists := c.broadcastedProcessedTxs[id]; exists {
-		return tx.state, nil
+		return c.aggregateTxState(tx), nil
 	}
+
+	// Check if the transaction exists in confirmedTxs
 	if tx, exists := c.confirmedTxs[id]; exists {
-		return tx.state, nil
+		return c.aggregateTxState(tx), nil
 	}
+
+	// Check if the transaction exists in finalizedErroredTxs
 	if tx, exists := c.finalizedErroredTxs[id]; exists {
 		return tx.state, nil
 	}
+
+	// Transaction not found in any map
 	return NotFound, fmt.Errorf("failed to find transaction for id: %s", id)
+}
+
+// aggregateTxState determines the highest TxState among all signatures of a pending transaction.
+func (c *pendingTxContext) aggregateTxState(tx pendingTx) TxState {
+	// Define the priority of states
+	statePriority := map[TxState]int{
+		Broadcasted: 1,
+		Processed:   2,
+		Confirmed:   3,
+	}
+
+	// Update highestState based on individual signature states
+	highestState := Broadcasted
+	for _, sig := range tx.signatures {
+		info, exists := c.sigToTxInfo[sig]
+		if !exists {
+			continue
+		}
+		if priority, ok := statePriority[info.state]; ok {
+			if priority > statePriority[highestState] {
+				highestState = info.state
+			}
+		}
+	}
+
+	return highestState
 }
 
 // TrimFinalizedErroredTxs deletes transactions from the finalized/errored map and the allTxs map after the retention period has passed
@@ -587,12 +622,11 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 			return ErrSigDoesNotExist
 		}
 
-		// Check if the transaction is still in a non finalized/errored state
-		var broadcastedExists, confirmedExists bool
-		_, broadcastedExists = c.broadcastedProcessedTxs[info.id]
-		_, confirmedExists = c.confirmedTxs[info.id]
-		if !broadcastedExists && !confirmedExists {
-			return ErrTransactionNotFound
+		// Check if the transaction is still in a non-finalized/non-errored state
+		if _, exists := c.broadcastedProcessedTxs[info.id]; !exists {
+			if _, exists := c.confirmedTxs[info.id]; !exists {
+				return ErrTransactionNotFound
+			}
 		}
 		return nil
 	})
@@ -609,6 +643,8 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 		if !exists {
 			return "", ErrSigDoesNotExist
 		}
+
+		// Attempt to find the transaction in the broadcasted or confirmed maps
 		var tx pendingTx
 		var broadcastedExists, confirmedExists bool
 		if tx, broadcastedExists = c.broadcastedProcessedTxs[info.id]; broadcastedExists {
@@ -618,12 +654,12 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 			pTx = tx
 		}
 		if !broadcastedExists && !confirmedExists {
-			// transcation does not exist in any non finalized/errored maps
+			// transaction does not exist in any non finalized/errored maps
 			return "", ErrTransactionNotFound
 		}
 
-		// Reset the signature status and tx for retrying
-		info.state, pTx.state = Broadcasted, Broadcasted
+		// Reset the signature status for retrying
+		info.state = Broadcasted
 		c.sigToTxInfo[sig] = info
 		return "", nil
 	})

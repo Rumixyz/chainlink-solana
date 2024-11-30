@@ -1503,8 +1503,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return sig1, nil
 		}
 
-		// Mock LatestBlockhash to return an invalid blockhash less than slotHeight
-		// We won't use it as there will be no rebroadcasts txes to process. All txes will be confirmed before.
+		// There will be no rebroadcasts txes to process
 		slotHeightFunc := func() (uint64, error) {
 			return uint64(1500), nil
 		}
@@ -1514,7 +1513,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			defer func() { callCount++ }()
 			return &rpc.GetLatestBlockhashResult{
 				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(1000),
+					LastValidBlockHeight: uint64(2000),
 				},
 			}, nil
 		}

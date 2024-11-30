@@ -233,13 +233,22 @@ func (c *pendingTxContext) ListAll() []solana.Signature {
 func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
-	for _, tx := range c.broadcastedProcessedTxs {
-		if tx.lastValidBlockHeight < currHeight {
-			broadcastedTxes = append(broadcastedTxes, tx)
+
+	expiredTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
+
+	for id, tx := range c.broadcastedProcessedTxs {
+		state, err := c.GetTxState(id)
+		if err != nil {
+			continue // Ignore transactions that are not found
+		}
+
+		// Check if the transaction is still in the Broadcasted state
+		if state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+			expiredTxes = append(expiredTxes, tx)
 		}
 	}
-	return broadcastedTxes
+
+	return expiredTxes
 }
 
 // Expired returns if the timeout for trying to confirm a signature has been reached

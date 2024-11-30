@@ -300,7 +300,7 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 		if !sigExists {
 			return info.id, ErrSigDoesNotExist
 		}
-		tx, exists := c.broadcastedProcessedTxs[info.id]
+		_, exists := c.broadcastedProcessedTxs[info.id]
 		if !exists {
 			return info.id, ErrTransactionNotFound
 		}
@@ -308,7 +308,6 @@ func (c *pendingTxContext) OnProcessed(sig solana.Signature) (string, error) {
 		info.state = Processed
 		// save updated sig and tx back to the maps
 		c.sigToTxInfo[sig] = info
-		c.broadcastedProcessedTxs[info.id] = tx
 		return info.id, nil
 	})
 }

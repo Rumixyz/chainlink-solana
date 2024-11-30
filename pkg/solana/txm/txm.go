@@ -465,27 +465,23 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 					continue
 				}
 
-				// check if a potential re-org has occurred for this sig and handle it
-				err := txm.handleReorg(ctx, sig, status)
-				if err != nil {
-					continue
-				}
-
 				switch status.ConfirmationStatus {
 				case rpc.ConfirmationStatusProcessed:
 					// if signature is processed, keep polling for confirmed or finalized status
 					txm.handleProcessedSignatureStatus(sig)
-					continue
 				case rpc.ConfirmationStatusConfirmed:
 					// if signature is confirmed, keep polling for finalized status
 					txm.handleConfirmedSignatureStatus(sig)
-					continue
 				case rpc.ConfirmationStatusFinalized:
 					// if signature is finalized, end polling
 					txm.handleFinalizedSignatureStatus(sig)
-					continue
 				default:
 					txm.lggr.Warnw("unknown confirmation status", "signature", sig, "status", status.ConfirmationStatus)
+				}
+
+				// check if a potential re-org has occurred for this sig and handle it
+				err := txm.handleReorg(ctx, sig, status)
+				if err != nil {
 					continue
 				}
 			}

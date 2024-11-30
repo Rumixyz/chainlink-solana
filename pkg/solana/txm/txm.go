@@ -544,13 +544,6 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 	currentTxState := convertStatus(status)
 	if isStatusRegression(txInfo.state, currentTxState) {
 		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
-		// Update status for the tx associated to this sig in our in-memory layer with last seen on-chain status.
-		_, err = txm.txs.UpdateSignatureStatus(sig, currentTxState)
-		if err != nil {
-			txm.lggr.Errorw("failed to update signature status", "signature", sig, "error", err)
-			return err
-		}
-
 		// Handle reorg in our in memory layer and retry transaction
 		pTx, err := txm.txs.OnReorg(sig)
 		if err != nil {
@@ -558,7 +551,11 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 			return err
 		}
 		retryCtx, _ := context.WithTimeout(ctx, pTx.cfg.Timeout) // TODO: Ask here. How should we handle the ctx?
-		txm.retryTx(retryCtx, pTx, pTx.tx, sig)
+		txm.done.Add(1)
+		go func() {
+			defer txm.done.Done()
+			txm.retryTx(retryCtx, pTx, pTx.tx, sig)
+		}()
 	}
 
 	return nil

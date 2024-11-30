@@ -49,9 +49,7 @@ type PendingTxContext interface {
 	TrimFinalizedErroredTxs() int
 	// GetSignatureInfo returns the transaction ID and TxState for the provided signature
 	GetSignatureInfo(sig solana.Signature) (txInfo, error)
-	// UpdateSignatureStatus updates the status of the provided signature within sigToTxInfo map
-	UpdateSignatureStatus(sig solana.Signature, newStatus TxState) (string, error)
-	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx.
+	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx for retrying.
 	OnReorg(sig solana.Signature) (pendingTx, error)
 }
 
@@ -580,38 +578,6 @@ func (c *pendingTxContext) GetSignatureInfo(sig solana.Signature) (txInfo, error
 	return info, nil
 }
 
-func (c *pendingTxContext) UpdateSignatureStatus(sig solana.Signature, newStatus TxState) (string, error) {
-	// First, acquire a read lock to check if the signature exists and needs to be updated
-	err := c.withReadLock(func() error {
-		info, exists := c.sigToTxInfo[sig]
-		if !exists {
-			return ErrSigDoesNotExist
-		}
-		if info.state == newStatus {
-			return ErrAlreadyInExpectedState
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-
-	// Upgrade to a write lock to perform the update
-	return c.withWriteLock(func() (string, error) {
-		info, exists := c.sigToTxInfo[sig]
-		if !exists {
-			return "", ErrSigDoesNotExist
-		}
-		if info.state == newStatus {
-			// no action needed
-			return "", ErrAlreadyInExpectedState
-		}
-		info.state = newStatus
-		c.sigToTxInfo[sig] = info
-		return "", nil
-	})
-}
-
 func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 	// Acquire a read lock to check if the signature exists and needs to be reset
 	err := c.withReadLock(func() error {
@@ -799,10 +765,6 @@ func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() int {
 
 func (c *pendingTxContextWithProm) GetSignatureInfo(sig solana.Signature) (txInfo, error) {
 	return c.pendingTx.GetSignatureInfo(sig)
-}
-
-func (c *pendingTxContextWithProm) UpdateSignatureStatus(sig solana.Signature, newStatus TxState) (string, error) {
-	return c.pendingTx.UpdateSignatureStatus(sig, newStatus)
 }
 
 func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature) (pendingTx, error) {

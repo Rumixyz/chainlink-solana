@@ -485,7 +485,7 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				}
 
 				// check if a potential re-org has occurred for this sig and handle it
-				err := txm.handleReorg(ctx, sig, status)
+				err := txm.handleReorg(sig, status)
 				if err != nil {
 					continue
 				}
@@ -533,7 +533,7 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 
 // handleReorg handles the case where a transaction signature is in a potential reorg state on-chain.
 // It updates the transaction state in the local memory and restarts the retry/bumping cycle for the transaction associated to that sig.
-func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) error {
+func (txm *Txm) handleReorg(sig solanaGo.Signature, status *rpc.SignatureStatusesResult) error {
 	// Retrieve last seen status for the tx associated to this sig in our in-memory layer.
 	txInfo, err := txm.txs.GetSignatureInfo(sig)
 	if err != nil {

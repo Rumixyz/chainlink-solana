@@ -40,13 +40,15 @@ func TestPendingTxContext_add_remove_multiple(t *testing.T) {
 	for i := 0; i < n; i++ {
 		sig, cancel := newProcess()
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		assert.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		assert.NoError(t, err)
 		ids[sig] = msg.id
 	}
 
 	// cannot add signature for non existent ID
-	require.Error(t, txs.AddSignature(uuid.New().String(), solana.Signature{}))
+	require.Error(t, txs.AddSignature(ctx, func() {}, uuid.New().String(), solana.Signature{}))
 
 	// return list of signatures
 	list := txs.ListAll()
@@ -69,13 +71,15 @@ func TestPendingTxContext_add_remove_multiple(t *testing.T) {
 
 func TestPendingTxContext_new(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	sig := randomSignature(t)
 	txs := newPendingTxContext()
 
 	// Create new transaction
 	msg := pendingTx{id: uuid.NewString()}
-	err := txs.New(msg, sig, cancel)
+	err := txs.New(msg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, msg.id, sig)
 	require.NoError(t, err)
 
 	// Check it exists in signature map
@@ -103,7 +107,7 @@ func TestPendingTxContext_new(t *testing.T) {
 
 func TestPendingTxContext_add_signature(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 
 	t.Run("successfully add signature to transaction", func(t *testing.T) {
@@ -112,10 +116,12 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
-		err = txs.AddSignature(msg.id, sig2)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig2)
 		require.NoError(t, err)
 
 		// Check signature map
@@ -147,10 +153,12 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
-		err = txs.AddSignature(msg.id, sig)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.ErrorIs(t, err, ErrSigAlreadyExists)
 	})
 
@@ -160,10 +168,12 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
-		err = txs.AddSignature("bad id", sig2)
+		err = txs.AddSignature(ctx, cancel, "bad id", sig2)
 		require.ErrorIs(t, err, ErrTransactionNotFound)
 	})
 
@@ -173,7 +183,9 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -186,14 +198,14 @@ func TestPendingTxContext_add_signature(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
-		err = txs.AddSignature(msg.id, sig2)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig2)
 		require.ErrorIs(t, err, ErrTransactionNotFound)
 	})
 }
 
 func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -202,7 +214,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -238,7 +252,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -261,7 +277,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -289,7 +307,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -307,7 +327,9 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -323,7 +345,7 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 
 func TestPendingTxContext_on_confirmed(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -332,7 +354,9 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -373,7 +397,9 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -401,7 +427,9 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -419,7 +447,9 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -440,7 +470,7 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 
 func TestPendingTxContext_on_finalized(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -450,11 +480,13 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
 		// Add second signature
-		err = txs.AddSignature(msg.id, sig2)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig2)
 		require.NoError(t, err)
 
 		// Transition to finalized state
@@ -490,11 +522,13 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
 		// Add second signature
-		err = txs.AddSignature(msg.id, sig2)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig2)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -539,7 +573,9 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig1, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig1)
 		require.NoError(t, err)
 
 		// Transition to processed state
@@ -579,7 +615,9 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -595,7 +633,7 @@ func TestPendingTxContext_on_finalized(t *testing.T) {
 
 func TestPendingTxContext_on_error(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -604,7 +642,9 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -637,7 +677,9 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -675,7 +717,9 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to fatally errored state
@@ -704,7 +748,9 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -739,7 +785,9 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to confirmed state
@@ -756,7 +804,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 
 func TestPendingTxContext_on_prebroadcast_error(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -797,7 +845,9 @@ func TestPendingTxContext_on_prebroadcast_error(t *testing.T) {
 		// Create new transaction
 		msg := pendingTx{id: uuid.NewString()}
 		// Add transaction to broadcasted map
-		err := txs.New(msg, sig, cancel)
+		err := txs.New(msg)
+		require.NoError(t, err)
+		err = txs.AddSignature(ctx, cancel, msg.id, sig)
 		require.NoError(t, err)
 
 		// Transition to errored state
@@ -820,7 +870,7 @@ func TestPendingTxContext_on_prebroadcast_error(t *testing.T) {
 
 func TestPendingTxContext_remove(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
@@ -834,14 +884,18 @@ func TestPendingTxContext_remove(t *testing.T) {
 
 	// Create new broadcasted transaction with extra sig
 	broadcastedMsg := pendingTx{id: uuid.NewString()}
-	err := txs.New(broadcastedMsg, broadcastedSig1, cancel)
+	err := txs.New(broadcastedMsg)
 	require.NoError(t, err)
-	err = txs.AddSignature(broadcastedMsg.id, broadcastedSig2)
+	err = txs.AddSignature(ctx, cancel, broadcastedMsg.id, broadcastedSig1)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, broadcastedMsg.id, broadcastedSig2)
 	require.NoError(t, err)
 
 	// Create new processed transaction
 	processedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(processedMsg, processedSig, cancel)
+	err = txs.New(processedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, processedMsg.id, processedSig)
 	require.NoError(t, err)
 	id, err := txs.OnProcessed(processedSig)
 	require.NoError(t, err)
@@ -849,7 +903,9 @@ func TestPendingTxContext_remove(t *testing.T) {
 
 	// Create new confirmed transaction
 	confirmedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(confirmedMsg, confirmedSig, cancel)
+	err = txs.New(confirmedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, confirmedMsg.id, confirmedSig)
 	require.NoError(t, err)
 	id, err = txs.OnConfirmed(confirmedSig)
 	require.NoError(t, err)
@@ -857,7 +913,9 @@ func TestPendingTxContext_remove(t *testing.T) {
 
 	// Create new finalized transaction
 	finalizedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(finalizedMsg, finalizedSig, cancel)
+	err = txs.New(finalizedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, finalizedMsg.id, finalizedSig)
 	require.NoError(t, err)
 	id, err = txs.OnFinalized(finalizedSig, retentionTimeout)
 	require.NoError(t, err)
@@ -865,7 +923,9 @@ func TestPendingTxContext_remove(t *testing.T) {
 
 	// Create new errored transaction
 	erroredMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(erroredMsg, erroredSig, cancel)
+	err = txs.New(erroredMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, erroredMsg.id, erroredSig)
 	require.NoError(t, err)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
@@ -919,6 +979,7 @@ func TestPendingTxContext_remove(t *testing.T) {
 	// Check sig list is empty after all removals
 	require.Empty(t, txs.ListAll())
 }
+
 func TestPendingTxContext_trim_finalized_errored_txs(t *testing.T) {
 	t.Parallel()
 	txs := newPendingTxContext()
@@ -956,12 +1017,14 @@ func TestPendingTxContext_trim_finalized_errored_txs(t *testing.T) {
 
 func TestPendingTxContext_expired(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	sig := solana.Signature{}
 	txs := newPendingTxContext()
 
 	msg := pendingTx{id: uuid.NewString()}
-	err := txs.New(msg, sig, cancel)
+	err := txs.New(msg)
+	assert.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, msg.id, sig)
 	assert.NoError(t, err)
 
 	msg, exists := txs.broadcastedProcessedTxs[msg.id]
@@ -984,16 +1047,17 @@ func TestPendingTxContext_expired(t *testing.T) {
 func TestPendingTxContext_race(t *testing.T) {
 	t.Run("new", func(t *testing.T) {
 		txCtx := newPendingTxContext()
+		txID := uuid.NewString()
 		var wg sync.WaitGroup
 		wg.Add(2)
 		var err [2]error
 
 		go func() {
-			err[0] = txCtx.New(pendingTx{id: uuid.NewString()}, solana.Signature{}, func() {})
+			err[0] = txCtx.New(pendingTx{id: txID})
 			wg.Done()
 		}()
 		go func() {
-			err[1] = txCtx.New(pendingTx{id: uuid.NewString()}, solana.Signature{}, func() {})
+			err[1] = txCtx.New(pendingTx{id: txID})
 			wg.Done()
 		}()
 
@@ -1004,18 +1068,19 @@ func TestPendingTxContext_race(t *testing.T) {
 	t.Run("add signature", func(t *testing.T) {
 		txCtx := newPendingTxContext()
 		msg := pendingTx{id: uuid.NewString()}
-		createErr := txCtx.New(msg, solana.Signature{}, func() {})
+		createErr := txCtx.New(msg)
 		require.NoError(t, createErr)
+		ctx, cancel := context.WithCancel(tests.Context(t))
 		var wg sync.WaitGroup
 		wg.Add(2)
 		var err [2]error
 
 		go func() {
-			err[0] = txCtx.AddSignature(msg.id, solana.Signature{1})
+			err[0] = txCtx.AddSignature(ctx, cancel, msg.id, solana.Signature{1})
 			wg.Done()
 		}()
 		go func() {
-			err[1] = txCtx.AddSignature(msg.id, solana.Signature{1})
+			err[1] = txCtx.AddSignature(ctx, cancel, msg.id, solana.Signature{1})
 			wg.Done()
 		}()
 
@@ -1026,7 +1091,7 @@ func TestPendingTxContext_race(t *testing.T) {
 	t.Run("remove", func(t *testing.T) {
 		txCtx := newPendingTxContext()
 		msg := pendingTx{id: uuid.NewString()}
-		err := txCtx.New(msg, solana.Signature{}, func() {})
+		err := txCtx.New(msg)
 		require.NoError(t, err)
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -1046,7 +1111,7 @@ func TestPendingTxContext_race(t *testing.T) {
 
 func TestGetTxState(t *testing.T) {
 	t.Parallel()
-	_, cancel := context.WithCancel(tests.Context(t))
+	ctx, cancel := context.WithCancel(tests.Context(t))
 	txs := newPendingTxContext()
 	retentionTimeout := 5 * time.Second
 
@@ -1059,13 +1124,17 @@ func TestGetTxState(t *testing.T) {
 
 	// Create new broadcasted transaction with extra sig
 	broadcastedMsg := pendingTx{id: uuid.NewString()}
-	err := txs.New(broadcastedMsg, broadcastedSig, cancel)
+	err := txs.New(broadcastedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, broadcastedMsg.id, broadcastedSig)
 	require.NoError(t, err)
 
 	var state TxState
 	// Create new processed transaction
 	processedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(processedMsg, processedSig, cancel)
+	err = txs.New(processedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, processedMsg.id, processedSig)
 	require.NoError(t, err)
 	id, err := txs.OnProcessed(processedSig)
 	require.NoError(t, err)
@@ -1077,7 +1146,9 @@ func TestGetTxState(t *testing.T) {
 
 	// Create new confirmed transaction
 	confirmedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(confirmedMsg, confirmedSig, cancel)
+	err = txs.New(confirmedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, confirmedMsg.id, confirmedSig)
 	require.NoError(t, err)
 	id, err = txs.OnConfirmed(confirmedSig)
 	require.NoError(t, err)
@@ -1089,7 +1160,9 @@ func TestGetTxState(t *testing.T) {
 
 	// Create new finalized transaction
 	finalizedMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(finalizedMsg, finalizedSig, cancel)
+	err = txs.New(finalizedMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, finalizedMsg.id, finalizedSig)
 	require.NoError(t, err)
 	id, err = txs.OnFinalized(finalizedSig, retentionTimeout)
 	require.NoError(t, err)
@@ -1101,7 +1174,9 @@ func TestGetTxState(t *testing.T) {
 
 	// Create new errored transaction
 	erroredMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(erroredMsg, erroredSig, cancel)
+	err = txs.New(erroredMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, erroredMsg.id, erroredSig)
 	require.NoError(t, err)
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
@@ -1113,7 +1188,9 @@ func TestGetTxState(t *testing.T) {
 
 	// Create new fatally errored transaction
 	fatallyErroredMsg := pendingTx{id: uuid.NewString()}
-	err = txs.New(fatallyErroredMsg, fatallyErroredSig, cancel)
+	err = txs.New(fatallyErroredMsg)
+	require.NoError(t, err)
+	err = txs.AddSignature(ctx, cancel, fatallyErroredMsg.id, fatallyErroredSig)
 	require.NoError(t, err)
 	id, err = txs.OnError(fatallyErroredSig, retentionTimeout, FatallyErrored, 0)
 	require.NoError(t, err)

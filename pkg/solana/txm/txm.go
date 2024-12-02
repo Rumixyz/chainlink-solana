@@ -216,10 +216,16 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("tx failed initial transmit: %w", errors.Join(initSendErr, stateTransitionErr))
 	}
 
-	// Store tx signature and cancel function
-	if err := txm.txs.New(msg, sig, cancel); err != nil {
-		cancel() // Cancel context when exiting early
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save tx signature (%s) to inflight txs: %w", sig, err)
+	// Create new transaction in memory
+	if err := txm.txs.New(msg); err != nil {
+		cancel()
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to create new transaction in memory: %w", err)
+	}
+
+	// Associate signature and retryCtx to tx
+	if err := txm.txs.AddSignature(ctx, cancel, msg.id, sig); err != nil {
+		cancel()
+		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save initial signature (%s) to inflight txs: %w", sig, err)
 	}
 
 	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
@@ -228,7 +234,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 	txm.done.Add(1)
 	go func() {
 		defer txm.done.Done()
-		txm.retryTx(ctx, msg, initTx, sig, func() {})
+		txm.retryTx(ctx, cancel, msg, initTx, sig)
 	}()
 
 	// Return signed tx, id, signature for use in simulation
@@ -279,8 +285,7 @@ func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (sol
 // retryTx contains the logic for retrying the transaction, including exponential backoff and fee bumping.
 // Retries until context cancelled by timeout or called externally.
 // It uses handleRetry helper function to handle each retry attempt.
-func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.Transaction, sig solanaGo.Signature, cancel context.CancelFunc) {
-	defer cancel()
+func (txm *Txm) retryTx(ctx context.Context, cancel context.CancelFunc, msg pendingTx, currentTx solanaGo.Transaction, sig solanaGo.Signature) {
 	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
 	sigs := &signatureList{}
 	sigs.Allocate()
@@ -329,7 +334,7 @@ func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.T
 			wg.Add(1)
 			go func(bump bool, count int, retryTx solanaGo.Transaction) {
 				defer wg.Done()
-				txm.handleRetry(ctx, msg, bump, count, retryTx, sigs)
+				txm.handleRetry(ctx, cancel, msg, bump, count, retryTx, sigs)
 			}(shouldBump, bumpCount, currentTx)
 		}
 
@@ -343,7 +348,7 @@ func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.T
 }
 
 // handleRetry handles the logic for each retry attempt, including sending the transaction, updating signatures, and logging.
-func (txm *Txm) handleRetry(ctx context.Context, msg pendingTx, bump bool, count int, retryTx solanaGo.Transaction, sigs *signatureList) {
+func (txm *Txm) handleRetry(ctx context.Context, cancel context.CancelFunc, msg pendingTx, bump bool, count int, retryTx solanaGo.Transaction, sigs *signatureList) {
 	// send retry transaction
 	retrySig, err := txm.sendTx(ctx, &retryTx)
 	if err != nil {
@@ -358,7 +363,7 @@ func (txm *Txm) handleRetry(ctx context.Context, msg pendingTx, bump bool, count
 
 	// if bump is true, update signature list and set new signature in space already allocated.
 	if bump {
-		if err := txm.txs.AddSignature(msg.id, retrySig); err != nil {
+		if err := txm.txs.AddSignature(ctx, cancel, msg.id, retrySig); err != nil {
 			txm.lggr.Warnw("error in adding retry transaction", "error", err, "id", msg.id)
 			return
 		}
@@ -542,16 +547,17 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 	if isStatusRegression(txInfo.state, currentTxState) {
 		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		// Handle reorg in our in memory layer and retry transaction
-		pTx, err := txm.txs.OnReorg(sig)
+		// We'll retrieve the associated pendgingTx and retryCtx to the sig
+		// attempting to restart the retry/bumping cycle for it if it's still in-flight
+		pTx, retryCtx, err := txm.txs.OnReorg(sig)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
 			return err
 		}
-		retryCtx, cancel := context.WithTimeout(ctx, pTx.cfg.Timeout) // TODO: How should we handle the ctx?
 		txm.done.Add(1)
 		go func() {
 			defer txm.done.Done()
-			txm.retryTx(retryCtx, pTx, pTx.tx, sig, cancel)
+			txm.retryTx(retryCtx.ctx, retryCtx.cancel, pTx, pTx.tx, sig)
 		}()
 	}
 

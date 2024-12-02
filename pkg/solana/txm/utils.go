@@ -112,25 +112,19 @@ func convertStatus(res *rpc.SignatureStatusesResult) TxState {
 }
 
 // isStatusRegression checks if the current status is a regression compared to the previous status:
-// - Finalized -> Confirmed, Processed, Broadcasted: should not regress
 // - Confirmed -> Processed, Broadcasted: should not regress
 // - Processed -> Broadcasted: should not regress
 // Returns true if a regression is detected, indicating a possible re-org.
 func isStatusRegression(previous, current TxState) bool {
 	switch previous {
-	case Finalized:
-		// Finalized transactions should not regress.
-		if current != Finalized {
-			return true
-		}
 	case Confirmed:
 		// Confirmed transactions should not regress to Processed or Broadcasted.
-		if current != Confirmed && current != Finalized {
+		if current != Confirmed && current != Finalized && current != Errored {
 			return true
 		}
 	case Processed:
 		// Processed transactions should not regress to Broadcasted.
-		if current != Processed && current != Confirmed && current != Finalized {
+		if current != Processed && current != Confirmed && current != Finalized && current != Errored {
 			return true
 		}
 	default:

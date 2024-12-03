@@ -20,10 +20,11 @@ var (
 )
 
 type PendingTxContext interface {
-	// New adds a new tranasction in Broadcasted state to the storage
-	New(msg pendingTx, sig solana.Signature, cancel context.CancelFunc) error
-	// AddSignature adds a new signature for an existing transaction ID
-	AddSignature(id string, sig solana.Signature) error
+	// New adds a new transaction in Broadcasted state to the storage
+	New(msg pendingTx) error
+	// AddSignature adds a new signature to a broadcasted transaction in the pending transaction context.
+	// It associates the provided context and cancel function with the signature to manage retry and bumping cycles.
+	AddSignature(cancel context.CancelFunc, id string, sig solana.Signature) error
 	// Remove removes transaction and related signatures from storage if not in finalized or errored state
 	Remove(sig solana.Signature) (string, error)
 	// ListAll returns all of the signatures being tracked for all transactions not yet finalized or errored
@@ -99,12 +100,8 @@ func newPendingTxContext() *pendingTxContext {
 	}
 }
 
-func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel context.CancelFunc) error {
+func (c *pendingTxContext) New(tx pendingTx) error {
 	err := c.withReadLock(func() error {
-		// validate signature does not exist
-		if _, exists := c.sigToTxInfo[sig]; exists {
-			return ErrSigAlreadyExists
-		}
 		// validate id does not exist
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
 			return ErrIDAlreadyExists
@@ -115,19 +112,12 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		return err
 	}
 
-	// upgrade to write lock if sig or id do not exist
+	// upgrade to write lock if id do not exist
 	_, err = c.withWriteLock(func() (string, error) {
-		if _, exists := c.sigToTxInfo[sig]; exists {
-			return "", ErrSigAlreadyExists
-		}
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
 			return "", ErrIDAlreadyExists
 		}
-		// save cancel func
-		c.cancelBy[tx.id] = cancel
-		c.sigToTxInfo[sig] = txInfo{id: tx.id, state: Broadcasted}
-		// add signature to tx
-		tx.signatures = append(tx.signatures, sig)
+		tx.signatures = []solana.Signature{}
 		tx.createTs = time.Now()
 		tx.state = Broadcasted
 		// save to the broadcasted map since transaction was just broadcasted
@@ -137,7 +127,7 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 	return err
 }
 
-func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
+func (c *pendingTxContext) AddSignature(cancel context.CancelFunc, id string, sig solana.Signature) error {
 	err := c.withReadLock(func() error {
 		// signature already exists
 		if _, exists := c.sigToTxInfo[sig]; exists {
@@ -168,6 +158,12 @@ func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 		tx.signatures = append(tx.signatures, sig)
 		// save updated tx to broadcasted map
 		c.broadcastedProcessedTxs[id] = tx
+		// set cancel context if not already set to handle reorgs when regressing from confirmed state
+		// previous context was removed so we associate a new context to our transaction to restart the retry/bumping cycle
+		if _, exists := c.cancelBy[id]; !exists {
+			c.cancelBy[id] = cancel
+		}
+
 		return "", nil
 	})
 	return err
@@ -609,30 +605,40 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 		if !exists {
 			return "", ErrSigDoesNotExist
 		}
-		var tx pendingTx
-		var broadcastedExists, confirmedExists bool
-		if tx, broadcastedExists = c.broadcastedProcessedTxs[info.id]; broadcastedExists {
+		var broadcastedProcessedExists, confirmedExists bool
+		if tx, broadcastedProcessedExists := c.broadcastedProcessedTxs[info.id]; broadcastedProcessedExists {
 			pTx = tx
 		}
-		if tx, confirmedExists = c.confirmedTxs[info.id]; confirmedExists {
+		if tx, confirmedExists := c.confirmedTxs[info.id]; confirmedExists {
 			pTx = tx
 		}
-		if !broadcastedExists && !confirmedExists {
-			// transcation does not exist in any non finalized/errored maps
+
+		if !broadcastedProcessedExists && !confirmedExists {
+			// transaction does not exist in any non finalized/errored maps
 			return "", ErrTransactionNotFound
 		}
 
-		// Reset the signature status and tx for retrying
-		info.state, pTx.state = Broadcasted, Broadcasted
+		// If the transaction regressed from processed state, we only need to reset the state
+		if broadcastedProcessedExists {
+			info.state, pTx.state = Broadcasted, Broadcasted
+			c.sigToTxInfo[sig] = info
+			c.broadcastedProcessedTxs[info.id] = pTx
+			return "", nil
+		}
+
+		// If the transaction regressed from confirmed state, we need to move it back to broadcasted state and rebroadcast.
+		info.state, pTx.state = Broadcasted, Broadcasted // TODO: may change if we decide to aggregate sigs
+		delete(c.confirmedTxs, info.id)
+		c.broadcastedProcessedTxs[info.id] = pTx
 		c.sigToTxInfo[sig] = info
 		return "", nil
 	})
 	if err != nil {
-		// If transaction or sig were not found, return
+		// If transaction or sig were not found
 		return pendingTx{}, err
 	}
 
-	// Return the transaction for retrying
+	// Returns the transaction in case we need to rebroadcast and restart the retry/bumping cycle
 	return pTx, nil
 }
 
@@ -673,12 +679,12 @@ func newPendingTxContextWithProm(id string) *pendingTxContextWithProm {
 	}
 }
 
-func (c *pendingTxContextWithProm) New(msg pendingTx, sig solana.Signature, cancel context.CancelFunc) error {
-	return c.pendingTx.New(msg, sig, cancel)
+func (c *pendingTxContextWithProm) New(msg pendingTx) error {
+	return c.pendingTx.New(msg)
 }
 
-func (c *pendingTxContextWithProm) AddSignature(id string, sig solana.Signature) error {
-	return c.pendingTx.AddSignature(id, sig)
+func (c *pendingTxContextWithProm) AddSignature(cancel context.CancelFunc, id string, sig solana.Signature) error {
+	return c.pendingTx.AddSignature(cancel, id, sig)
 }
 
 func (c *pendingTxContextWithProm) OnProcessed(sig solana.Signature) (string, error) {

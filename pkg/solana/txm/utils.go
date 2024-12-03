@@ -51,6 +51,35 @@ func (s TxState) String() string {
 	}
 }
 
+type regressionType int
+
+const (
+	FromConfirmed regressionType = iota
+	FromProcessed
+)
+
+// isStatusRegression checks if the current status is a regression compared to the previous status:
+// - Confirmed -> Processed, Broadcasted: should not regress
+// - Processed -> Broadcasted: should not regress
+// Returns true if a regression is detected, indicating a possible re-org.
+func isStatusRegression(previous, current TxState) (regressionType, bool) {
+	switch previous {
+	case Confirmed:
+		// Confirmed transactions should not regress to Processed or Broadcasted.
+		if current != Confirmed && current != Finalized && current != Errored {
+			return FromConfirmed, true
+		}
+	case Processed:
+		// Processed transactions should not regress to Broadcasted.
+		if current != Processed && current != Confirmed && current != Finalized && current != Errored {
+			return FromProcessed, true
+		}
+	default:
+		return 0, false
+	}
+	return 0, false
+}
+
 type statuses struct {
 	sigs []solana.Signature
 	res  []*rpc.SignatureStatusesResult
@@ -109,28 +138,6 @@ func convertStatus(res *rpc.SignatureStatusesResult) TxState {
 	}
 
 	return NotFound
-}
-
-// isStatusRegression checks if the current status is a regression compared to the previous status:
-// - Confirmed -> Processed, Broadcasted: should not regress
-// - Processed -> Broadcasted: should not regress
-// Returns true if a regression is detected, indicating a possible re-org.
-func isStatusRegression(previous, current TxState) bool {
-	switch previous {
-	case Confirmed:
-		// Confirmed transactions should not regress to Processed or Broadcasted.
-		if current != Confirmed && current != Finalized && current != Errored {
-			return true
-		}
-	case Processed:
-		// Processed transactions should not regress to Broadcasted.
-		if current != Processed && current != Confirmed && current != Finalized && current != Errored {
-			return true
-		}
-	default:
-		return false
-	}
-	return false
 }
 
 type signatureList struct {

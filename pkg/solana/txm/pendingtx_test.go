@@ -90,7 +90,7 @@ func TestPendingTxContext_new(t *testing.T) {
 	require.Equal(t, sig, tx.signatures[0])
 
 	// Check status is Broadcasted
-	require.Equal(t, Broadcasted, txInfo.state)
+	require.Equal(t, Broadcasted, tx.state)
 
 	// Check it does not exist in confirmed map
 	_, exists = txs.confirmedTxs[msg.id]
@@ -222,7 +222,7 @@ func TestPendingTxContext_on_broadcasted_processed(t *testing.T) {
 		require.Equal(t, sig, tx.signatures[0])
 
 		// Check status is Processed
-		require.Equal(t, Processed, txInfo.state)
+		require.Equal(t, Processed, tx.state)
 
 		// Check it does not exist in confirmed map
 		_, exists = txs.confirmedTxs[msg.id]
@@ -361,7 +361,7 @@ func TestPendingTxContext_on_confirmed(t *testing.T) {
 		require.Equal(t, sig, tx.signatures[0])
 
 		// Check status is Confirmed
-		require.Equal(t, Confirmed, txInfo.state)
+		require.Equal(t, Confirmed, tx.state)
 
 		// Check it does not exist in finalized map
 		_, exists = txs.finalizedErroredTxs[msg.id]

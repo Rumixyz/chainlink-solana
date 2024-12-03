@@ -228,7 +228,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 	txm.done.Add(1)
 	go func() {
 		defer txm.done.Done()
-		txm.retryTx(ctx, msg, initTx, sig, func() {})
+		txm.retryTx(ctx, msg, initTx, sig)
 	}()
 
 	// Return signed tx, id, signature for use in simulation
@@ -279,8 +279,7 @@ func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (sol
 // retryTx contains the logic for retrying the transaction, including exponential backoff and fee bumping.
 // Retries until context cancelled by timeout or called externally.
 // It uses handleRetry helper function to handle each retry attempt.
-func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.Transaction, sig solanaGo.Signature, cancel context.CancelFunc) {
-	defer cancel()
+func (txm *Txm) retryTx(ctx context.Context, msg pendingTx, currentTx solanaGo.Transaction, sig solanaGo.Signature) {
 	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
 	sigs := &signatureList{}
 	sigs.Allocate()
@@ -547,11 +546,11 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
 			return err
 		}
-		retryCtx, cancel := context.WithTimeout(ctx, pTx.cfg.Timeout) // TODO: How should we handle the ctx?
+		retryCtx, _ := context.WithTimeout(ctx, pTx.cfg.Timeout) // TODO: Ask here. How should we handle the ctx?
 		txm.done.Add(1)
 		go func() {
 			defer txm.done.Done()
-			txm.retryTx(retryCtx, pTx, pTx.tx, sig, cancel)
+			txm.retryTx(retryCtx, pTx, pTx.tx, sig)
 		}()
 	}
 

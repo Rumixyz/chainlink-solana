@@ -41,9 +41,9 @@ func TestPendingTxContext_add_remove_multiple(t *testing.T) {
 		sig, cancel := newProcess()
 		msg := pendingTx{id: uuid.NewString()}
 		err := txs.New(msg)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		err = txs.AddSignature(cancel, msg.id, sig)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		ids[sig] = msg.id
 	}
 
@@ -1024,6 +1024,7 @@ func TestPendingTxContext_expired(t *testing.T) {
 	err := txs.New(msg)
 	assert.NoError(t, err)
 	err = txs.AddSignature(cancel, msg.id, sig)
+	assert.NoError(t, err)
 
 	msg, exists := txs.broadcastedProcessedTxs[msg.id]
 	require.True(t, exists)

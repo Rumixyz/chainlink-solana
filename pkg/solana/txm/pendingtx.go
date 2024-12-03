@@ -605,11 +605,13 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 		if !exists {
 			return "", ErrSigDoesNotExist
 		}
-		var broadcastedProcessedExists, confirmedExists bool
-		if tx, broadcastedProcessedExists := c.broadcastedProcessedTxs[info.id]; broadcastedProcessedExists {
+
+		tx, broadcastedProcessedExists := c.broadcastedProcessedTxs[info.id]
+		if broadcastedProcessedExists {
 			pTx = tx
 		}
-		if tx, confirmedExists := c.confirmedTxs[info.id]; confirmedExists {
+		tx, confirmedExists := c.confirmedTxs[info.id]
+		if confirmedExists {
 			pTx = tx
 		}
 

@@ -548,7 +548,7 @@ func (txm *Txm) handleReorg(sig solanaGo.Signature, status *rpc.SignatureStatuse
 		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		// Handle reorg in our in memory layer and retry transaction
 		// We'll retrieve the associated pendgingTx and retryCtx to the sig
-		// attempting to restart the retry/bumping cycle for it if retryCtx still valid
+		// attempting to restart the retry/bumping cycle for it if it's still in-flight
 		pTx, retryCtx, err := txm.txs.OnReorg(sig)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)

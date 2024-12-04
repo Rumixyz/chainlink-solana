@@ -532,37 +532,47 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 	}
 }
 
-// handleReorg handles the case where a transaction signature is in a potential reorg state on-chain.
-// It updates the transaction state in the local memory and restarts the retry/bumping cycle for the transaction associated to that sig.
+// handleReorg detects and manages transaction state regressions (re-orgs) for a given signature.
+//
+// A re-org occurs when the blockchain state of a signature regresses to:
+// - Confirmed -> Processed || Not Found
+// - Processed -> Not Found
+//
+// This function determines if the signature’s state regression impacts the overall transaction state and, if so, takes appropriate action:
+//   - For regressions from "Confirmed", our in memory layer is updated, the tx is rebroadcasted, and the retry/bumping cycle is restarted.
+//   - For regressions from "Processed", the existing retry/bumping cycle is still running, so no immediate action is needed. We only update our in-memory state to Broadcasted.
+//     Future rebroadcasts, will be handled by the TxExpirationRebroadcast logic (if enabled) when the transaction expires.
 func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) error {
-	// Retrieve last seen status for the tx associated to this sig in our in-memory layer.
+	// Retrieve the last known status of the transaction associated with this signature from the in-memory layer.
 	txInfo, err := txm.txs.GetSignatureInfo(sig)
 	if err != nil {
 		txm.lggr.Errorw("failed to get signature info when checking for potential re-orgs", "signature", sig, "error", err)
 		return err
 	}
 
-	// Check if the sig has been reorged by detecting if it had a status regression
-	// Confirmed -> Processed || Not Found
-	// Processed -> Not Found
+	// Check if the sig status has regressed to indicate a re-org.
+	// A regression is identified when the state transitions as follows:
+	// - Confirmed -> Processed || Not Found
+	// - Processed -> Not Found
 	currentTxState := convertStatus(status)
 	if regressionType, isRegressed := isStatusRegression(txInfo.state, currentTxState); isRegressed {
-		// Check if the signature reorg causes a reorg in the tx state
-		// If the tx is not in a re-org state, we will not handle it despite the sig being reorged.
-		// As we have multiple sigs inflight for a single tx, having a reorg for one sig does not mean all the sigs were reorged.
-		// The tx may still be on this sig "previous state" if other sigs were not reorged.
+		// Determine if the sig regression affects the transaction state.
+		// If the tx isn't considered re-orged, skip further processing.
+		// Multiple signatures may be in-flight for a single transaction, so a re-org
+		// for one signature doesn't necessarily mean the transaction state has regressed.
 		if !txm.txs.TxHasReorg(txInfo.id) {
 			return nil
 		}
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
+		// Handle re-org for the transaction and update the in-memory state.
 		pTx, err := txm.txs.OnReorg(sig)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
 			return err
 		}
 
-		// If the transaction is regressing from a confirmed state, we will restart the retry/bumping cycle
+		// For regressions from "Confirmed", restart the retry/bumping cycle.
 		if regressionType == FromConfirmed {
 			retryCtx, cancel := context.WithTimeout(ctx, pTx.cfg.Timeout)
 			txm.done.Add(1)
@@ -571,9 +581,10 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 				txm.retryTx(retryCtx, cancel, pTx, pTx.tx, sig)
 			}()
 		}
-		// If the transaction is regressing from a processed state, the retry/bumping cycle is still running for the original tx.
-		// We will not restart the retry/bumping cycle for this transaction right now.
-		// If it expires and TxExpiredRebroadcast is enabled, it will be rebroadcasted as per the expiration rebroadcast logic.
+		// For regressions from "Processed" do not restart the cycle immediately.
+		// The retry/bumping cycle for the original transaction is still active.
+		// If rebroadcasting becomes necessary later, it will be handled via the
+		// TxExpirationRebroadcast logic (if enabled) when the transaction expires.
 	}
 	return nil
 }

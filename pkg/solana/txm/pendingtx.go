@@ -624,19 +624,16 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 			return "", ErrTransactionNotFound
 		}
 
-		// If the transaction regressed from processed state, we only need to reset the state
-		if broadcastedProcessedExists {
-			info.state, pTx.state = Broadcasted, Broadcasted
-			c.sigToTxInfo[sig] = info
-			c.broadcastedProcessedTxs[info.id] = pTx
-			return "", nil
+		// reset state to broadcasted and update the transaction in the broadcasted map
+		info.state, pTx.state = Broadcasted, Broadcasted
+		c.sigToTxInfo[sig] = info
+		c.broadcastedProcessedTxs[info.id] = pTx
+
+		// If the transaction regressed from confirmed state, we also need to remove it from the confirmed map
+		if confirmedExists {
+			delete(c.confirmedTxs, info.id)
 		}
 
-		// If the transaction regressed from confirmed state, we need to move it back to broadcasted state and rebroadcast.
-		info.state, pTx.state = Broadcasted, Broadcasted // TODO: may change if we decide to aggregate sigs
-		delete(c.confirmedTxs, info.id)
-		c.broadcastedProcessedTxs[info.id] = pTx
-		c.sigToTxInfo[sig] = info
 		return "", nil
 	})
 	if err != nil {

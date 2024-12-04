@@ -565,14 +565,14 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		}
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
-		// Handle re-org for the transaction and update the in-memory state.
+		// update the in-memory state and return the transaction associated with the signature for rebroadcasting and restarting retry/bump cycle if needed
 		pTx, err := txm.txs.OnReorg(sig)
 		if err != nil {
-			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
+			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", pTx.id, "error", err)
 			return err
 		}
 
-		// For regressions from "Confirmed", restart the retry/bumping cycle.
+		// For regressions from "Confirmed", rebroadcast tx and restart retry/bumping cycle.
 		if regressionType == FromConfirmed {
 			retryCtx, cancel := context.WithTimeout(ctx, pTx.cfg.Timeout)
 			txm.done.Add(1)

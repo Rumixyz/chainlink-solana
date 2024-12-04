@@ -50,6 +50,10 @@ type PendingTxContext interface {
 	TrimFinalizedErroredTxs() int
 	// GetSignatureInfo returns the transaction ID and TxState for the provided signature
 	GetSignatureInfo(sig solana.Signature) (txInfo, error)
+	// TxHasReorg determines whether a reorg has occurred for a given tx.
+	// It achieves this by comparing the highest aggregated state across all associated signatures with the current state of the transaction.
+	// If the highest aggregated state is less than the current state, a reorg has occurred and we need to handle it.
+	TxHasReorg(id string) bool
 	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx for retrying.
 	OnReorg(sig solana.Signature) (pendingTx, error)
 }
@@ -644,6 +648,51 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 	return pTx, nil
 }
 
+// TxHasReorg determines whether a reorg has occurred for a given tx.
+// It achieves this by comparing the highest aggregated state across all associated signatures with the current state of the transaction.
+// If the highest aggregated state is less than the current state, a reorg has occurred and we need to handle it.
+func (c *pendingTxContext) TxHasReorg(id string) bool {
+	var pTx pendingTx
+	var broadcastedExists, confirmedExists bool
+	statePriority := map[TxState]int{
+		Broadcasted: 1,
+		Processed:   2,
+		Confirmed:   3,
+	}
+	highestSigAggState := Broadcasted
+
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	// Check if the transaction is still in a non finalized/errored state
+	tx, broadcastedExists := c.broadcastedProcessedTxs[id]
+	if broadcastedExists {
+		pTx = tx
+	}
+	tx, confirmedExists = c.confirmedTxs[id]
+	if confirmedExists {
+		pTx = tx
+	}
+	if !broadcastedExists && !confirmedExists {
+		return false
+	}
+
+	// Get the highest state among all signatures
+	for _, sig := range pTx.signatures {
+		info, exists := c.sigToTxInfo[sig]
+		if !exists {
+			continue
+		}
+		if priority, ok := statePriority[info.state]; ok {
+			if priority > statePriority[highestSigAggState] {
+				highestSigAggState = info.state
+			}
+		}
+	}
+
+	// If the highest state among all signatures is less than the transaction state, then a reorg has occurred
+	return statePriority[highestSigAggState] < statePriority[pTx.state]
+}
+
 func (c *pendingTxContext) withReadLock(fn func() error) error {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -777,4 +826,8 @@ func (c *pendingTxContextWithProm) GetSignatureInfo(sig solana.Signature) (txInf
 
 func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature) (pendingTx, error) {
 	return c.pendingTx.OnReorg(sig)
+}
+
+func (c *pendingTxContextWithProm) TxHasReorg(id string) bool {
+	return c.pendingTx.TxHasReorg(id)
 }

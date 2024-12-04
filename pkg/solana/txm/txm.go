@@ -542,11 +542,20 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		return err
 	}
 
-	// Check if tx has been reorged by detecting if we had a status regression
-	// If so, we'll handle the reorg by updating the status in our in-memory layer and retrying the transaction for that sig.
+	// Check if the sig has been reorged by detecting if it had a status regression
+	// Confirmed -> Processed || Not Found
+	// Processed -> Not Found
 	currentTxState := convertStatus(status)
 	if regressionType, isRegressed := isStatusRegression(txInfo.state, currentTxState); isRegressed {
-		txm.lggr.Warnw("potential re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
+		// Check if the signature reorg causes a reorg in the tx state
+		// If the tx is not in a re-org state, we will not handle it despite the sig being reorged.
+		// As we have multiple sigs inflight for a single tx, having a reorg for one sig does not mean all the sigs were reorged.
+		// The tx may still be on this sig "previous state" if other sigs were not reorged.
+		if !txm.txs.TxHasReorg(txInfo.id) {
+			return nil
+		}
+
+		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		pTx, err := txm.txs.OnReorg(sig)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle potential re-org", "signature", sig, "id", pTx.id, "error", err)
@@ -566,7 +575,6 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		// We will not restart the retry/bumping cycle for this transaction right now.
 		// If it expires and TxExpiredRebroadcast is enabled, it will be rebroadcasted as per the expiration rebroadcast logic.
 	}
-
 	return nil
 }
 

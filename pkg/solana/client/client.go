@@ -32,6 +32,7 @@ type Reader interface {
 	AccountReader
 	Balance(ctx context.Context, addr solana.PublicKey) (uint64, error)
 	SlotHeight(ctx context.Context) (uint64, error)
+	SlotHeightWithCommitment(ctx context.Context, commitment rpc.CommitmentType) (uint64, error)
 	LatestBlockhash(ctx context.Context) (*rpc.GetLatestBlockhashResult, error)
 	ChainID(ctx context.Context) (mn.StringID, error)
 	GetFeeForMessage(ctx context.Context, msg string) (uint64, error)

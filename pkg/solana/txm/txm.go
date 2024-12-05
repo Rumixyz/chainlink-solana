@@ -570,7 +570,7 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 // An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currHeight, err := client.SlotHeight(ctx)
+	currHeight, err := client.SlotHeightWithCommitment(ctx, txm.cfg.Commitment())
 	if err != nil {
 		txm.lggr.Errorw("failed to get current slot height", "error", err)
 		return
@@ -579,9 +579,6 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 	rebroadcastTxs, rebroadcastCount, allCount := txm.txs.ListAllExpiredBroadcastedTxs(currHeight)
 	txm.lggr.Debugw("rebroadcasting expired transactions", "rebroadcastCount", rebroadcastCount, "allCount", allCount)
 	for _, tx := range rebroadcastTxs {
-		if tx.lastValidBlockHeight > currHeight {
-			continue
-		}
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "currHeight", currHeight, "lastValidBlockHeight", tx.lastValidBlockHeight)
 		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)

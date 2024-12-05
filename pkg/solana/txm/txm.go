@@ -577,7 +577,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 	}
 	// Rebroadcast all expired txes
 	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlockHeight.BlockHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", "currentBlockHeight", *currBlockHeight.BlockHeight, tx.lastValidBlockHeight)
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlockHeight.BlockHeight)
 		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
 			continue

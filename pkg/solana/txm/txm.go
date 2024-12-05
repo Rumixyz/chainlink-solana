@@ -423,7 +423,7 @@ func (txm *Txm) confirm() {
 // The function handles transitions, managing expiration, errors, and transitions between different states like broadcasted, processed, confirmed, and finalized.
 // It also determines when to end polling based on the status of each signature cancelling the exponential retry.
 func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter) {
-	sigsBatch, err := utils.BatchSplit(txm.txs.ListAll(), MaxSigsToConfirm)
+	sigsBatch, err := utils.BatchSplit(txm.txs.ListAllSigs(), MaxSigsToConfirm)
 	if err != nil { // this should never happen
 		txm.lggr.Fatalw("failed to batch signatures", "error", err)
 		return
@@ -582,8 +582,8 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
 			continue
 		}
-		// only picking signature[0]. Remove func removes all related remaining signatures and cancels tx context.
-		_, err := txm.txs.Remove(tx.signatures[0])
+		// Removes all signatures associated to tx and cancels context.
+		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
@@ -899,7 +899,7 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 
 // InflightTxs returns the number of signatures being tracked for all transactions not yet finalized or errored
 func (txm *Txm) InflightTxs() int {
-	return len(txm.txs.ListAll())
+	return len(txm.txs.ListAllSigs())
 }
 
 // Close close service

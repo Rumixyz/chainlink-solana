@@ -41,6 +41,7 @@ type TestConfig struct {
 	OCR2                  *ocr2_config.Config              `toml:"OCR2"`
 	SolanaConfig          *SolanaConfig                    `toml:"SolanaConfig"`
 	ConfigurationName     string                           `toml:"-"`
+	WorkloadLabels        map[string]string                `toml:"WorkloadLabels"`
 
 	// getter funcs for passing parameters
 	GetChainID func() string
@@ -224,7 +225,35 @@ func (c *TestConfig) ReadFromEnvVar() error {
 		c.SolanaConfig.Secret = &solanaSecret
 	}
 
+	// Add WorkloadLabels from environment variable if set
+	workloadLabelsEnv := os.Getenv("WORKLOAD_LABELS")
+	if workloadLabelsEnv != "" {
+		labels := parseWorkloadLabels(workloadLabelsEnv)
+		if c.WorkloadLabels == nil {
+			c.WorkloadLabels = make(map[string]string)
+		}
+		for key, value := range labels {
+			c.WorkloadLabels[key] = value
+		}
+		logger.Info().Msg("WorkloadLabels have been set from WORKLOAD_LABELS environment variable")
+	}
+
 	return nil
+}
+
+// parseWorkloadLabels parses a string of labels in key=value format separated by commas
+func parseWorkloadLabels(labels string) map[string]string {
+	result := make(map[string]string)
+	pairs := strings.Split(labels, ",")
+	for _, pair := range pairs {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			key := strings.TrimSpace(kv[0])
+			value := strings.TrimSpace(kv[1])
+			result[key] = value
+		}
+	}
+	return result
 }
 
 func (c *TestConfig) GetLoggingConfig() *ctf_config.LoggingConfig {

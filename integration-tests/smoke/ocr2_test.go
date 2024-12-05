@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,18 +22,37 @@ import (
 
 func TestSolanaOCRV2Smoke(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		env  map[string]string
+		name           string
+		env            map[string]string
+		workloadLabels map[string]string // Added workloadLabels
 	}{
-		{name: "embedded"},
+		{name: "embedded", workloadLabels: map[string]string{
+			"chain.link/team":        "team-alpha",
+			"chain.link/cost-center": "cc-12345",
+			"chain.link/product":     "product-X",
+		}},
 		{name: "plugins", env: map[string]string{
 			"CL_MEDIAN_CMD": "chainlink-feeds",
 			"CL_SOLANA_CMD": "chainlink-solana",
+		}, workloadLabels: map[string]string{
+			"chain.link/team":        "team-beta",
+			"chain.link/cost-center": "cc-67890",
+			"chain.link/product":     "product-Y",
 		}},
 	} {
 		config, err := tc.GetConfig("Smoke", tc.OCR2)
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		// Merge workloadLabels into config.WorkloadLabels
+		if test.workloadLabels != nil {
+			if config.WorkloadLabels == nil {
+				config.WorkloadLabels = make(map[string]string)
+			}
+			for key, value := range test.workloadLabels {
+				config.WorkloadLabels[key] = value
+			}
 		}
 
 		test := test
@@ -84,6 +104,36 @@ func startOCR2DataFeedsSmokeTest(t *testing.T, testname string, testenv map[stri
 
 	state.SetupClients()
 	require.NoError(t, err)
+
+	// Apply WorkloadLabels to Kubernetes resources
+	if len(config.WorkloadLabels) > 0 {
+		for resourceName, labelValue := range config.WorkloadLabels {
+			// Determine the resource type based on the resource name pattern
+			var resourceType string
+			switch {
+			case strings.Contains(resourceName, "node-creds-secret"):
+				resourceType = "secret"
+			case strings.Contains(resourceName, "cm"):
+				resourceType = "configmap"
+			case strings.Contains(resourceName, "postgres-node"):
+				resourceType = "deployment" // Adjust as needed
+			default:
+				resourceType = "deployment" // Default resource type
+			}
+
+			// Construct the label key
+			splitName := strings.Split(resourceName, "-")
+			if len(splitName) == 0 {
+				require.Fail(t, "Invalid resource name format: "+resourceName)
+			}
+			labelKey := "chain.link/" + splitName[len(splitName)-1]
+
+			// Apply the label using kubectl
+			cmd := exec.Command("kubectl", "label", resourceType, resourceName, fmt.Sprintf("%s=%s", labelKey, labelValue), "--overwrite")
+			output, errOutput := cmd.CombinedOutput()
+			require.NoError(t, errOutput, fmt.Sprintf("Failed to apply label to resource %s: %s", resourceName, string(output)))
+		}
+	}
 
 	gauntletConfig := map[string]string{
 		"SECRET":      fmt.Sprintf("\"%s\"", *config.SolanaConfig.Secret),

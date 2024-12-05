@@ -222,7 +222,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save tx signature (%s) to inflight txs: %w", sig, err)
 	}
 
-	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
+	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig, "lastValidBlockHeight", msg.lastValidBlockHeight)
 
 	// Initialize signature list with initialTx signature. This list will be used to add new signatures and track retry attempts.
 	sigs := &signatureList{}
@@ -570,14 +570,14 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 // An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currHeight, err := client.SlotHeight(ctx)
-	if err != nil {
-		txm.lggr.Errorw("failed to get current slot height", "error", err)
+	currBlockHeight, err := client.GetLatestBlock(ctx)
+	if err != nil || currBlockHeight == nil || currBlockHeight.BlockHeight == nil {
+		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
 	// Rebroadcast all expired txes
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
+	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlockHeight.BlockHeight) {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", "currentBlockHeight", *currBlockHeight.BlockHeight, tx.lastValidBlockHeight)
 		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
 			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
 			continue

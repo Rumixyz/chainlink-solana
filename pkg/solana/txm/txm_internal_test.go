@@ -1227,7 +1227,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	setupTxmTest := func(
 		txExpirationRebroadcast bool,
 		latestBlockhashFunc func() (*rpc.GetLatestBlockhashResult, error),
-		slotHeightFunc func() (uint64, error),
+		getLatestBlockFunc func() (*rpc.GetBlockResult, error),
 		sendTxFunc func() (solana.Signature, error),
 		statuses map[solana.Signature]func() *rpc.SignatureStatusesResult,
 	) (*Txm, *mocks.ReaderWriter, *keyMocks.SimpleKeystore) {
@@ -1241,10 +1241,10 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 				},
 			).Maybe()
 		}
-		if slotHeightFunc != nil {
-			mc.On("SlotHeight", mock.Anything).Return(
-				func(_ context.Context) (uint64, error) {
-					return slotHeightFunc()
+		if getLatestBlockFunc != nil {
+			mc.On("GetLatestBlock", mock.Anything).Return(
+				func(_ context.Context) (*rpc.GetBlockResult, error) {
+					return getLatestBlockFunc()
 				},
 			).Maybe()
 		}
@@ -1292,9 +1292,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txExpirationRebroadcast := true
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		// Mock SlotHeight to return a value greater than 0
-		slotHeightFunc := func() (uint64, error) {
-			return uint64(1500), nil
+		// Mock getLatestBlock to return a value greater than 0
+		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
+			val := uint64(1500)
+			return &rpc.GetBlockResult{
+				BlockHeight: &val,
+			}, nil
 		}
 
 		callCount := 0
@@ -1349,7 +1352,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			}
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, slotHeightFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
 
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast"
@@ -1373,7 +1376,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txExpirationRebroadcast := false
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		// mocking the call within sendWithRetry. Rebroadcast is off, so we won't compare it against the slotHeight.
+		// mocking the call within sendWithRetry. Rebroadcast is off, so we won't compare it against the blockHeight.
 		callCount := 0
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
 			defer func() { callCount++ }()
@@ -1426,9 +1429,14 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txExpirationRebroadcast := true
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		slotHeightFunc := func() (uint64, error) {
-			return uint64(1500), nil
+		// Mock getLatestBlock to return a value greater than 0
+		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
+			val := uint64(1500)
+			return &rpc.GetBlockResult{
+				BlockHeight: &val,
+			}, nil
 		}
+
 		// Mock LatestBlockhash to return an invalid blockhash in the first 3 attempts (initial + 2 rebroadcasts)
 		// the last one is valid because it is greater than the slotHeight
 		expectedRebroadcastsCount := 3
@@ -1481,7 +1489,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			}
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, slotHeightFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
@@ -1508,10 +1516,12 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return sig1, nil
 		}
 
-		// Mock LatestBlockhash to return an invalid blockhash less than slotHeight
-		// We won't use it as there will be no rebroadcasts txes to process. All txes will be confirmed before.
-		slotHeightFunc := func() (uint64, error) {
-			return uint64(1500), nil
+		// Mock getLatestBlock to return a value greater than 0
+		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
+			val := uint64(1500)
+			return &rpc.GetBlockResult{
+				BlockHeight: &val,
+			}, nil
 		}
 
 		callCount := 0
@@ -1544,7 +1554,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return out
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, slotHeightFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-confirmed-before-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
@@ -1567,11 +1577,15 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txExpirationRebroadcast := true
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		// To force rebroadcast, first call needs to be smaller than slotHeight
-		// following rebroadcast call will go through because lastValidBlockHeight will be bigger than slotHeight
-		slotHeightFunc := func() (uint64, error) {
-			return uint64(1500), nil
+		// To force rebroadcast, first call needs to be smaller than blockHeight
+		// following rebroadcast call will go through because lastValidBlockHeight will be bigger than blockHeight
+		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
+			val := uint64(1500)
+			return &rpc.GetBlockResult{
+				BlockHeight: &val,
+			}, nil
 		}
+
 		callCount := 0
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
 			defer func() { callCount++ }()
@@ -1606,7 +1620,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return nil
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, slotHeightFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast-error"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
@@ -1624,4 +1638,5 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		require.Equal(t, types.Failed, status)
 		require.Equal(t, 1, callCount-1) // -1 because the first call is not a rebroadcast
 	})
+
 }

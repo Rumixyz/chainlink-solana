@@ -28,9 +28,9 @@ type PendingTxContext interface {
 	Remove(sig solana.Signature) (string, error)
 	// ListAll returns all of the signatures being tracked for all transactions not yet finalized or errored
 	ListAll() []solana.Signature
-	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
+	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
 	// Passing maxUint64 as currHeight will return all broadcasted txes.
-	ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx
+	ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -221,14 +221,14 @@ func (c *pendingTxContext) ListAll() []solana.Signature {
 	return maps.Keys(c.sigToID)
 }
 
-// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
+// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
 // Passing maxUint64 as currHeight will return all broadcasted txes.
-func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
+func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
 	for _, tx := range c.broadcastedProcessedTxs {
-		if tx.state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+		if tx.state == Broadcasted && tx.lastValidBlockHeight < currBlockHeight {
 			broadcastedTxes = append(broadcastedTxes, tx)
 		}
 	}
@@ -623,8 +623,8 @@ func (c *pendingTxContextWithProm) ListAll() []solana.Signature {
 	return sigs
 }
 
-func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currHeight uint64) []pendingTx {
-	return c.pendingTx.ListAllExpiredBroadcastedTxs(currHeight)
+func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
+	return c.pendingTx.ListAllExpiredBroadcastedTxs(currBlockHeight)
 }
 
 func (c *pendingTxContextWithProm) Expired(sig solana.Signature, lifespan time.Duration) bool {

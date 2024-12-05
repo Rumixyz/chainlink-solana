@@ -24,13 +24,13 @@ type PendingTxContext interface {
 	New(msg pendingTx, sig solana.Signature, cancel context.CancelFunc) error
 	// AddSignature adds a new signature for an existing transaction ID
 	AddSignature(id string, sig solana.Signature) error
-	// Remove removes transaction and related signatures from storage if not in finalized or errored state
-	Remove(sig solana.Signature) (string, error)
-	// ListAll returns all of the signatures being tracked for all transactions not yet finalized or errored
-	ListAll() []solana.Signature
+	// Remove removes transaction, context and related signatures from storage associated to given tx id if not in finalized or errored state
+	Remove(id string) (string, error)
+	// ListAllSigs returns all of the signatures being tracked for all transactions not yet finalized or errored
+	ListAllSigs() []solana.Signature
 	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
 	// Passing maxUint64 as currHeight will return all broadcasted txes.
-	ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int)
+	ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -166,13 +166,8 @@ func (c *pendingTxContext) AddSignature(id string, sig solana.Signature) error {
 
 // returns the id if removed (otherwise returns empty string)
 // removes transactions from any state except finalized and errored
-func (c *pendingTxContext) Remove(sig solana.Signature) (id string, err error) {
-	err = c.withReadLock(func() error {
-		// check if already removed
-		id, sigExists := c.sigToID[sig]
-		if !sigExists {
-			return ErrSigDoesNotExist
-		}
+func (c *pendingTxContext) Remove(id string) (string, error) {
+	err := c.withReadLock(func() error {
 		_, broadcastedIDExists := c.broadcastedProcessedTxs[id]
 		_, confirmedIDExists := c.confirmedTxs[id]
 		// transcation does not exist in tx maps
@@ -187,10 +182,6 @@ func (c *pendingTxContext) Remove(sig solana.Signature) (id string, err error) {
 
 	// upgrade to write lock if sig does not exist
 	return c.withWriteLock(func() (string, error) {
-		id, sigExists := c.sigToID[sig]
-		if !sigExists {
-			return id, ErrSigDoesNotExist
-		}
 		var tx pendingTx
 		if tempTx, exists := c.broadcastedProcessedTxs[id]; exists {
 			tx = tempTx
@@ -215,24 +206,30 @@ func (c *pendingTxContext) Remove(sig solana.Signature) (id string, err error) {
 	})
 }
 
-func (c *pendingTxContext) ListAll() []solana.Signature {
+func (c *pendingTxContext) ListAllSigs() []solana.Signature {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return maps.Keys(c.sigToID)
 }
 
-// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given slot height compared against their lastValidBlockHeight.
+func (c *pendingTxContext) ListAllTxsIDs() []string {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return maps.Values(c.sigToID)
+}
+
+// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
 // Passing maxUint64 as currHeight will return all broadcasted txes.
-func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int) {
+func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
 	for _, tx := range c.broadcastedProcessedTxs {
-		if tx.state == Broadcasted && tx.lastValidBlockHeight < currHeight {
+		if tx.state == Broadcasted && tx.lastValidBlockHeight < currBlockHeight {
 			broadcastedTxes = append(broadcastedTxes, tx)
 		}
 	}
-	return broadcastedTxes, len(broadcastedTxes), len(c.broadcastedProcessedTxs)
+	return broadcastedTxes
 }
 
 // Expired returns if the timeout for trying to confirm a signature has been reached
@@ -613,18 +610,18 @@ func (c *pendingTxContextWithProm) OnConfirmed(sig solana.Signature) (string, er
 	return id, err
 }
 
-func (c *pendingTxContextWithProm) Remove(sig solana.Signature) (string, error) {
-	return c.pendingTx.Remove(sig)
+func (c *pendingTxContextWithProm) Remove(id string) (string, error) {
+	return c.pendingTx.Remove(id)
 }
 
-func (c *pendingTxContextWithProm) ListAll() []solana.Signature {
-	sigs := c.pendingTx.ListAll()
+func (c *pendingTxContextWithProm) ListAllSigs() []solana.Signature {
+	sigs := c.pendingTx.ListAllSigs()
 	promSolTxmPendingTxs.WithLabelValues(c.chainID).Set(float64(len(sigs)))
 	return sigs
 }
 
-func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currHeight uint64) ([]pendingTx, int, int) {
-	return c.pendingTx.ListAllExpiredBroadcastedTxs(currHeight)
+func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
+	return c.pendingTx.ListAllExpiredBroadcastedTxs(currBlockHeight)
 }
 
 func (c *pendingTxContextWithProm) Expired(sig solana.Signature, lifespan time.Duration) bool {

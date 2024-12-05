@@ -210,7 +210,6 @@ func (c *pendingTxContext) ListAllSigs() []solana.Signature {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return maps.Keys(c.sigToID)
-
 }
 
 func (c *pendingTxContext) ListAllTxsIDs() []string {

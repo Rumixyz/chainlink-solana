@@ -772,7 +772,6 @@ func TestTxm_disabled_confirm_timeout_with_retention(t *testing.T) {
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
-	mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
 	computeUnitLimitDefault := fees.ComputeUnitLimit(cfg.ComputeUnitLimitDefault())
 

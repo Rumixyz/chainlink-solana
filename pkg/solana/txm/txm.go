@@ -462,6 +462,8 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				// sig not found could mean invalid tx or not picked up yet, keep polling
 				if status == nil {
 					txm.handleNotFoundSignatureStatus(sig)
+					// check if a potential re-org has occurred for this sig and handle it
+					txm.handleReorg(ctx, sig, status)
 					continue
 				}
 
@@ -474,7 +476,9 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				switch status.ConfirmationStatus {
 				case rpc.ConfirmationStatusProcessed:
 					// if signature is processed, keep polling for confirmed or finalized status
+					// we also need to check if a potential re-org has occurred for this sig and handle it
 					txm.handleProcessedSignatureStatus(sig)
+					txm.handleReorg(ctx, sig, status)
 				case rpc.ConfirmationStatusConfirmed:
 					// if signature is confirmed, keep polling for finalized status
 					txm.handleConfirmedSignatureStatus(sig)
@@ -483,12 +487,6 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 					txm.handleFinalizedSignatureStatus(sig)
 				default:
 					txm.lggr.Warnw("unknown confirmation status", "signature", sig, "status", status.ConfirmationStatus)
-				}
-
-				// check if a potential re-org has occurred for this sig and handle it
-				err := txm.handleReorg(ctx, sig, status)
-				if err != nil {
-					continue
 				}
 			}
 		}(i)
@@ -542,12 +540,12 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 //   - For regressions from "Confirmed", our in memory layer is updated, the tx is rebroadcasted, and the retry/bumping cycle is restarted.
 //   - For regressions from "Processed", the existing retry/bumping cycle is still running, so no immediate action is needed. We only update our in-memory state to Broadcasted.
 //     Future rebroadcasts, will be handled by the TxExpirationRebroadcast logic (if enabled) when the transaction expires.
-func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) error {
+func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
 	// Retrieve the last known status of the transaction associated with this signature from the in-memory layer.
 	txInfo, err := txm.txs.GetSignatureInfo(sig)
 	if err != nil {
 		txm.lggr.Errorw("failed to get signature info when checking for potential re-orgs", "signature", sig, "error", err)
-		return err
+		return
 	}
 
 	// Check if the sig status has regressed to indicate a re-org.
@@ -561,7 +559,7 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		// Multiple signatures may be in-flight for a single transaction, so a re-org
 		// for one signature doesn't necessarily mean the transaction state has regressed.
 		if !txm.txs.TxHasReorg(txInfo.id) {
-			return nil
+			return
 		}
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
@@ -569,7 +567,7 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		pTx, err := txm.txs.OnReorg(sig)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", pTx.id, "error", err)
-			return err
+			return
 		}
 
 		// For regressions from "Confirmed", rebroadcast tx and restart retry/bumping cycle.
@@ -586,7 +584,6 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 		// If rebroadcasting becomes necessary later, it will be handled via the
 		// TxExpirationRebroadcast logic (if enabled) when the transaction expires.
 	}
-	return nil
 }
 
 // handleProcessedSignatureStatus handles the case where a transaction signature is in the "processed" state on-chain.

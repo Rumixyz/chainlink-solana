@@ -651,11 +651,6 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 func (c *pendingTxContext) TxHasReorg(id string) bool {
 	var pTx pendingTx
 	var broadcastedExists, confirmedExists bool
-	statePriority := map[TxState]int{
-		Broadcasted: 1,
-		Processed:   2,
-		Confirmed:   3,
-	}
 	highestSigAggState := Broadcasted
 
 	c.lock.RLock()
@@ -679,15 +674,11 @@ func (c *pendingTxContext) TxHasReorg(id string) bool {
 		if !exists {
 			continue
 		}
-		if priority, ok := statePriority[info.state]; ok {
-			if priority > statePriority[highestSigAggState] {
-				highestSigAggState = info.state
-			}
-		}
+		highestSigAggState = max(highestSigAggState, info.state)
 	}
 
 	// If the highest state among all signatures is less than the transaction state, then a reorg has occurred
-	return statePriority[highestSigAggState] < statePriority[pTx.state]
+	return highestSigAggState < pTx.state
 }
 
 func (c *pendingTxContext) withReadLock(fn func() error) error {

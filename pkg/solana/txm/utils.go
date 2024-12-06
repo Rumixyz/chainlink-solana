@@ -66,12 +66,12 @@ func isStatusRegression(previous, current TxState) (regressionType, bool) {
 	switch previous {
 	case Confirmed:
 		// Confirmed transactions should not regress to Processed or Broadcasted.
-		if current != Confirmed && current != Finalized && current != Errored {
+		if current == Processed || current == Broadcasted {
 			return FromConfirmed, true
 		}
 	case Processed:
 		// Processed transactions should not regress to Broadcasted.
-		if current != Processed && current != Confirmed && current != Finalized && current != Errored {
+		if current == Broadcasted {
 			return FromProcessed, true
 		}
 	default:

@@ -570,24 +570,21 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 // An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currBlockHeight, err := client.GetLatestBlock(ctx)
-	if err != nil || currBlockHeight == nil || currBlockHeight.BlockHeight == nil {
+	currBlock, err := client.GetLatestBlock(ctx)
+	if err != nil || currBlock == nil || currBlock.BlockHeight == nil {
 		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
 	// Rebroadcast all expired txes
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlockHeight.BlockHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlockHeight.BlockHeight)
-		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
-			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
-			continue
-		}
+	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlock.BlockHeight) {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
 		// Removes all signatures associated to tx and cancels context.
 		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
+		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice() // update compute unit price (priority fee) for rebroadcast
 		rebroadcastTx := pendingTx{
 			tx:  tx.tx,
 			cfg: tx.cfg,
@@ -720,15 +717,9 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	msg := pendingTx{
+		id:  id,
 		tx:  *tx,
 		cfg: cfg,
-	}
-
-	// If ID was not set by caller, create one.
-	if txID != nil && *txID != "" {
-		msg.id = *txID
-	} else {
-		msg.id = uuid.New().String()
 	}
 
 	select {

@@ -212,12 +212,6 @@ func (c *pendingTxContext) ListAllSigs() []solana.Signature {
 	return maps.Keys(c.sigToID)
 }
 
-func (c *pendingTxContext) ListAllTxsIDs() []string {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	return maps.Values(c.sigToID)
-}
-
 // ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
 // Passing maxUint64 as currHeight will return all broadcasted txes.
 func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {

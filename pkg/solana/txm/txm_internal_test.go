@@ -978,7 +978,6 @@ func TestTxm_compute_unit_limit_estimation(t *testing.T) {
 	cfg.Chain.TxRetentionTimeout = relayconfig.MustNewDuration(5 * time.Second)
 	mc := mocks.NewReaderWriter(t)
 	mc.On("GetLatestBlock", mock.Anything).Return(&rpc.GetBlockResult{}, nil).Maybe()
-	mc.On("SlotHeight", mock.Anything).Return(uint64(0), nil).Maybe()
 
 	// mock solana keystore
 	mkey := keyMocks.NewSimpleKeystore(t)
@@ -1292,7 +1291,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		txExpirationRebroadcast := true
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		// Mock getLatestBlock to return a value greater than 0
+		// Mock getLatestBlock to return a value greater than 0 for blockHeight
 		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
 			val := uint64(1500)
 			return &rpc.GetBlockResult{
@@ -1304,14 +1303,14 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
 			defer func() { callCount++ }()
 			if callCount < 1 {
-				// To force rebroadcast, first call needs to be smaller than slotHeight
+				// To force rebroadcast, first call needs to be smaller than blockHeight
 				return &rpc.GetLatestBlockhashResult{
 					Value: &rpc.LatestBlockhashResult{
 						LastValidBlockHeight: uint64(1000),
 					},
 				}, nil
 			}
-			// following rebroadcast call will go through because lastValidBlockHeight is bigger than slotHeight
+			// following rebroadcast call will go through because lastValidBlockHeight is bigger than blockHeight
 			return &rpc.GetLatestBlockhashResult{
 				Value: &rpc.LatestBlockhashResult{
 					LastValidBlockHeight: uint64(2000),
@@ -1438,7 +1437,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		}
 
 		// Mock LatestBlockhash to return an invalid blockhash in the first 3 attempts (initial + 2 rebroadcasts)
-		// the last one is valid because it is greater than the slotHeight
+		// the last one is valid because it is greater than the blockHeight
 		expectedRebroadcastsCount := 3
 		callCount := 0
 		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {

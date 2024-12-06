@@ -48,8 +48,10 @@ func TestPendingTxContext_add_remove_multiple(t *testing.T) {
 	// cannot add signature for non existent ID
 	require.Error(t, txs.AddSignature(uuid.New().String(), solana.Signature{}))
 
-	// return list of txsIds
-	list := txs.ListAllTxsIDs()
+	list := make([]string, 0, n)
+	for _, id := range txs.sigToID {
+		list = append(list, id)
+	}
 	assert.Equal(t, n, len(list))
 
 	// stop all sub processes

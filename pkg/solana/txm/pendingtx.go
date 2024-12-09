@@ -615,7 +615,13 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 			return "", ErrTransactionNotFound
 		}
 
-		// reset state to broadcasted and update the transaction in the broadcasted map
+		// Reset the transaction state to 'Broadcasted' upon detecting a reorg.
+		// Even if the transaction might have already progressed to 'Processed' before the reorg,
+		// we reset it to 'Broadcasted' for simplicity.
+		// Any state advancements (e.g., moving to 'Processed' or 'Confirmed') will be picked up
+		// on the next status polling cycle.
+		// This approach does not introduce any risk with the expiration logic since
+		// we check for status changes before considering a transaction for expiration.
 		info.state, pTx.state = Broadcasted, Broadcasted
 		c.sigToTxInfo[sig] = info
 		c.broadcastedProcessedTxs[info.id] = pTx

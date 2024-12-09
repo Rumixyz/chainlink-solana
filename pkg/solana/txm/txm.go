@@ -228,7 +228,7 @@ func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Tran
 		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to save initial signature (%s) to inflight txs: %w", sig, err)
 	}
 
-	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig)
+	txm.lggr.Debugw("tx initial broadcast", "id", msg.id, "fee", msg.cfg.BaseComputeUnitPrice, "signature", sig, "lastValidBlockHeight", msg.lastValidBlockHeight)
 
 	// pass in copy of msg (to build new tx with bumped fee) and broadcasted tx == initTx (to retry tx without bumping)
 	txm.done.Add(1)
@@ -431,7 +431,7 @@ func (txm *Txm) confirm() {
 // The function handles transitions, managing expiration, errors, and transitions between different states like broadcasted, processed, confirmed, and finalized.
 // It also determines when to end polling based on the status of each signature cancelling the exponential retry.
 func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter) {
-	sigsBatch, err := utils.BatchSplit(txm.txs.ListAll(), MaxSigsToConfirm)
+	sigsBatch, err := utils.BatchSplit(txm.txs.ListAllSigs(), MaxSigsToConfirm)
 	if err != nil { // this should never happen
 		txm.lggr.Fatalw("failed to batch signatures", "error", err)
 		return
@@ -634,24 +634,21 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 // An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currHeight, err := client.SlotHeight(ctx)
-	if err != nil {
-		txm.lggr.Errorw("failed to get current slot height", "error", err)
+	currBlock, err := client.GetLatestBlock(ctx)
+	if err != nil || currBlock == nil || currBlock.BlockHeight == nil {
+		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
 	// Rebroadcast all expired txes
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(currHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures)
-		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
-			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
-			continue
-		}
-		// only picking signature[0]. Remove func removes all related remaining signatures and cancels tx context.
-		_, err := txm.txs.Remove(tx.signatures[0])
+	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlock.BlockHeight) {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
+		// Removes all signatures associated to tx and cancels context.
+		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
+		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice() // update compute unit price (priority fee) for rebroadcast
 		rebroadcastTx := pendingTx{
 			tx:  tx.tx,
 			cfg: tx.cfg,
@@ -784,15 +781,9 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	msg := pendingTx{
+		id:  id,
 		tx:  *tx,
 		cfg: cfg,
-	}
-
-	// If ID was not set by caller, create one.
-	if txID != nil && *txID != "" {
-		msg.id = *txID
-	} else {
-		msg.id = uuid.New().String()
 	}
 
 	select {
@@ -963,7 +954,7 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 
 // InflightTxs returns the number of signatures being tracked for all transactions not yet finalized or errored
 func (txm *Txm) InflightTxs() int {
-	return len(txm.txs.ListAll())
+	return len(txm.txs.ListAllSigs())
 }
 
 // Close close service

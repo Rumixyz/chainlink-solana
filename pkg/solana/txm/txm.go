@@ -550,10 +550,15 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 
 	// Check if the sig status has regressed to indicate a re-org.
 	// A regression is identified when the state transitions as follows:
-	// - Confirmed -> Processed || Not Found
-	// - Processed -> Not Found
+	// - Confirmed -> Processed || Broadcasted || Not Found
+	// - Processed -> Broadcasted || Not Found
 	currentTxState := convertStatus(status)
 	if regressionType, isRegressed := isStatusRegression(txInfo.state, currentTxState); isRegressed {
+		if err := txm.txs.UpdateSignatureStatus(sig, currentTxState); err != nil {
+			txm.lggr.Errorw("failed to update sig status", "signature", sig, "error", err)
+			return
+		}
+
 		// Determine if the sig regression affects the transaction state.
 		// If the tx isn't considered re-orged, skip further processing.
 		// Multiple signatures may be in-flight for a single transaction, so a re-org
@@ -564,7 +569,7 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		// update the in-memory state and return the transaction associated with the signature for rebroadcasting and restarting retry/bump cycle if needed
-		pTx, err := txm.txs.OnReorg(sig)
+		pTx, err := txm.txs.OnReorg(sig, txInfo.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", pTx.id, "error", err)
 			return
@@ -577,6 +582,7 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 			go func() {
 				defer txm.done.Done()
 				txm.retryTx(retryCtx, cancel, pTx, pTx.tx, sig)
+				txm.lggr.Debugw("re-org retry completed", "id", pTx.id)
 			}()
 		}
 		// For regressions from "Processed" do not restart the cycle immediately.

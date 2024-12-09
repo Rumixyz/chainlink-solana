@@ -50,12 +50,14 @@ type PendingTxContext interface {
 	TrimFinalizedErroredTxs() int
 	// GetSignatureInfo returns the transaction ID and TxState for the provided signature
 	GetSignatureInfo(sig solana.Signature) (txInfo, error)
+	// UpdateSignatureStatus updates the status of a signature in the SigToTxInfo map
+	UpdateSignatureStatus(sig solana.Signature, status TxState) error
 	// TxHasReorg determines whether a reorg has occurred for a given tx.
 	// It achieves this by comparing the highest aggregated state across all associated signatures with the current state of the transaction.
 	// If the highest aggregated state is less than the current state, a reorg has occurred and we need to handle it.
 	TxHasReorg(id string) bool
 	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx for retrying.
-	OnReorg(sig solana.Signature) (pendingTx, error)
+	OnReorg(sig solana.Signature, id string) (pendingTx, error)
 }
 
 // finishedTx is used to store info required to track transactions to finality or error
@@ -569,19 +571,12 @@ func (c *pendingTxContext) GetSignatureInfo(sig solana.Signature) (txInfo, error
 	return info, nil
 }
 
-func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
-	// Acquire a read lock to check if the signature exists and needs to be reset
+func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, error) {
 	err := c.withReadLock(func() error {
-		// Check if the signature is still being tracked
-		info, exists := c.sigToTxInfo[sig]
-		if !exists {
-			return ErrSigDoesNotExist
-		}
-
 		// Check if the transaction is still in a non finalized/errored state
 		var broadcastedExists, confirmedExists bool
-		_, broadcastedExists = c.broadcastedProcessedTxs[info.id]
-		_, confirmedExists = c.confirmedTxs[info.id]
+		_, broadcastedExists = c.broadcastedProcessedTxs[id]
+		_, confirmedExists = c.confirmedTxs[id]
 		if !broadcastedExists && !confirmedExists {
 			return ErrTransactionNotFound
 		}
@@ -593,19 +588,14 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 	}
 
 	var pTx pendingTx
-	// Acquire a write lock to perform the state reset
+	// Acquire a write lock to perform the state reset if needed
 	_, err = c.withWriteLock(func() (string, error) {
-		// Retrieve sig and tx again inside the write lock
-		info, exists := c.sigToTxInfo[sig]
-		if !exists {
-			return "", ErrSigDoesNotExist
-		}
-
-		tx, broadcastedProcessedExists := c.broadcastedProcessedTxs[info.id]
+		// Retrieve tx again inside the write lock
+		tx, broadcastedProcessedExists := c.broadcastedProcessedTxs[id]
 		if broadcastedProcessedExists {
 			pTx = tx
 		}
-		tx, confirmedExists := c.confirmedTxs[info.id]
+		tx, confirmedExists := c.confirmedTxs[id]
 		if confirmedExists {
 			pTx = tx
 		}
@@ -622,19 +612,18 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature) (pendingTx, error) {
 		// on the next status polling cycle.
 		// This approach does not introduce any risk with the expiration logic since
 		// we check for status changes before considering a transaction for expiration.
-		info.state, pTx.state = Broadcasted, Broadcasted
-		c.sigToTxInfo[sig] = info
-		c.broadcastedProcessedTxs[info.id] = pTx
+		pTx.state = Broadcasted
+		c.broadcastedProcessedTxs[id] = pTx
 
 		// If the transaction regressed from confirmed state, we also need to remove it from the confirmed map
 		if confirmedExists {
-			delete(c.confirmedTxs, info.id)
+			delete(c.confirmedTxs, id)
 		}
 
 		return "", nil
 	})
 	if err != nil {
-		// If transaction or sig were not found
+		// If transaction was not found
 		return pendingTx{}, err
 	}
 
@@ -676,6 +665,41 @@ func (c *pendingTxContext) TxHasReorg(id string) bool {
 
 	// If the highest state among all signatures is less than the transaction state, then a reorg has occurred
 	return highestSigAggState < pTx.state
+}
+
+func (c *pendingTxContext) UpdateSignatureStatus(sig solana.Signature, status TxState) error {
+	// Acquire a read lock to check if the signature exists and needs to be reset
+	err := c.withReadLock(func() error {
+		// Check if the signature is still being tracked
+		_, exists := c.sigToTxInfo[sig]
+		if !exists {
+			return ErrSigDoesNotExist
+		}
+		return nil
+	})
+	if err != nil {
+		// If sig not found, return
+		return err
+	}
+
+	// Acquire a write lock to perform the state reset
+	_, err = c.withWriteLock(func() (string, error) {
+		// Retrieve sig again inside the write lock
+		info, exists := c.sigToTxInfo[sig]
+		if !exists {
+			return "", ErrSigDoesNotExist
+		}
+		// Update the status of the signature
+		info.state = status
+		c.sigToTxInfo[sig] = info
+		return "", nil
+	})
+	if err != nil {
+		// If sig was not found
+		return err
+	}
+
+	return nil
 }
 
 func (c *pendingTxContext) withReadLock(fn func() error) error {
@@ -809,10 +833,14 @@ func (c *pendingTxContextWithProm) GetSignatureInfo(sig solana.Signature) (txInf
 	return c.pendingTx.GetSignatureInfo(sig)
 }
 
-func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature) (pendingTx, error) {
-	return c.pendingTx.OnReorg(sig)
+func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature, id string) (pendingTx, error) {
+	return c.pendingTx.OnReorg(sig, id)
 }
 
 func (c *pendingTxContextWithProm) TxHasReorg(id string) bool {
 	return c.pendingTx.TxHasReorg(id)
+}
+
+func (c *pendingTxContextWithProm) UpdateSignatureStatus(sig solana.Signature, status TxState) error {
+	return c.pendingTx.UpdateSignatureStatus(sig, status)
 }

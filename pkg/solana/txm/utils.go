@@ -59,19 +59,17 @@ const (
 )
 
 // isStatusRegression checks if the current status is a regression compared to the previous status:
-// - Confirmed -> Processed, Broadcasted: should not regress
-// - Processed -> Broadcasted: should not regress
+// - Confirmed -> Processed, Broadcasted, Not Found: should not regress
+// - Processed -> Broadcasted, Not Found: should not regress
 // Returns true if a regression is detected, indicating a possible re-org.
 func isStatusRegression(previous, current TxState) (regressionType, bool) {
 	switch previous {
 	case Confirmed:
-		// Confirmed transactions should not regress to Processed or Broadcasted.
-		if current == Processed || current == Broadcasted {
+		if current == Processed || current == Broadcasted || current == NotFound {
 			return FromConfirmed, true
 		}
 	case Processed:
-		// Processed transactions should not regress to Broadcasted.
-		if current == Broadcasted {
+		if current == Broadcasted || current == NotFound {
 			return FromProcessed, true
 		}
 	default:

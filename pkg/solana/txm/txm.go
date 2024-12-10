@@ -183,7 +183,7 @@ func (txm *Txm) run() {
 // It builds, signs and sends the initial tx with a new valid blockhash, and starts a retry routine with fee bumping if needed.
 // The function returns the signed transaction, its ID, and the initial signature for use in simulation.
 func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Transaction, string, solanaGo.Signature, error) {
-	// Assign new blockhash and lastValidBlockHeight to the transaction
+	// Assign new blockhash and lastValidBlockHeight (last valid block number) to the transaction
 	// This is essential for tracking transaction rebroadcast
 	// Only the initial transaction should be sent with the updated blockhash
 	client, err := txm.client.Get()
@@ -637,7 +637,7 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 }
 
 // rebroadcastExpiredTxs attempts to rebroadcast all transactions that are in broadcasted state and have expired.
-// An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
+// An expired tx is one where it's blockhash lastValidBlockHeight (last valid block number) is smaller than the current block height (block number).
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
 	currBlock, err := client.GetLatestBlock(ctx)
@@ -645,7 +645,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
-	// Rebroadcast all expired txes
+	// Rebroadcast all expired txes using currBlockHeight (current block number)
 	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlock.BlockHeight) {
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
 		// Removes all signatures associated to tx and cancels context.

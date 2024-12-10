@@ -29,9 +29,9 @@ type PendingTxContext interface {
 	Remove(id string) (string, error)
 	// ListAllSigs returns all of the signatures being tracked for all transactions not yet finalized or errored
 	ListAllSigs() []solana.Signature
-	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
-	// Passing maxUint64 as currHeight will return all broadcasted txes.
-	ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx
+	// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block number compared against lastValidBlockHeight (last valid block number)
+	// Passing maxUint64 as currBlockNumber will return all broadcasted txes.
+	ListAllExpiredBroadcastedTxs(currBlockNumber uint64) []pendingTx
 	// Expired returns whether or not confirmation timeout amount of time has passed since creation
 	Expired(sig solana.Signature, confirmationTimeout time.Duration) bool
 	// OnProcessed marks transactions as Processed
@@ -68,7 +68,7 @@ type pendingTx struct {
 	id                   string
 	createTs             time.Time
 	state                TxState
-	lastValidBlockHeight uint64 // to track expiration
+	lastValidBlockHeight uint64 // to track expiration, equivalent to last valid block number.
 }
 
 // finishedTx is used to store minimal info specifically for finalized or errored transactions for external status checks
@@ -223,18 +223,18 @@ func (c *pendingTxContext) ListAllSigs() []solana.Signature {
 	return maps.Keys(c.sigToTxInfo)
 }
 
-// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block height compared against their lastValidBlockHeight.
-// Passing maxUint64 as currHeight will return all broadcasted txes.
-func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
+// ListAllExpiredBroadcastedTxs returns all the txes that are in broadcasted state and have expired for given block number compared against lastValidBlockHeight (last valid block number)
+// Passing maxUint64 as currBlockNumber will return all broadcasted txes.
+func (c *pendingTxContext) ListAllExpiredBroadcastedTxs(currBlockNumber uint64) []pendingTx {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	broadcastedTxes := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
+	expiredBroadcastedTxs := make([]pendingTx, 0, len(c.broadcastedProcessedTxs)) // worst case, all of them
 	for _, tx := range c.broadcastedProcessedTxs {
-		if tx.state == Broadcasted && tx.lastValidBlockHeight < currBlockHeight {
-			broadcastedTxes = append(broadcastedTxes, tx)
+		if tx.state == Broadcasted && tx.lastValidBlockHeight < currBlockNumber {
+			expiredBroadcastedTxs = append(expiredBroadcastedTxs, tx)
 		}
 	}
-	return broadcastedTxes
+	return expiredBroadcastedTxs
 }
 
 // Expired returns if the timeout for trying to confirm a signature has been reached
@@ -769,8 +769,8 @@ func (c *pendingTxContextWithProm) ListAllSigs() []solana.Signature {
 	return sigs
 }
 
-func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currBlockHeight uint64) []pendingTx {
-	return c.pendingTx.ListAllExpiredBroadcastedTxs(currBlockHeight)
+func (c *pendingTxContextWithProm) ListAllExpiredBroadcastedTxs(currBlockNumber uint64) []pendingTx {
+	return c.pendingTx.ListAllExpiredBroadcastedTxs(currBlockNumber)
 }
 
 func (c *pendingTxContextWithProm) Expired(sig solana.Signature, lifespan time.Duration) bool {

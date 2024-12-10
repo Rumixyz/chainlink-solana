@@ -459,11 +459,11 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 
 			for j := 0; j < len(sortedRes); j++ {
 				sig, status := sortedSigs[j], sortedRes[j]
-				// sig not found could mean invalid tx or not picked up yet, keep polling
 				if status == nil {
-					txm.handleNotFoundSignatureStatus(sig)
-					// check if a potential re-org has occurred for this sig and handle it
+					// sig not found could mean invalid tx or not picked up yet, keep polling
+					// we also need to check if a potential re-org has occurred for this sig and handle it
 					txm.handleReorg(ctx, sig, status)
+					txm.handleNotFoundSignatureStatus(sig)
 					continue
 				}
 
@@ -477,8 +477,8 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				case rpc.ConfirmationStatusProcessed:
 					// if signature is processed, keep polling for confirmed or finalized status
 					// we also need to check if a potential re-org has occurred for this sig and handle it
-					txm.handleProcessedSignatureStatus(sig)
 					txm.handleReorg(ctx, sig, status)
+					txm.handleProcessedSignatureStatus(sig)
 				case rpc.ConfirmationStatusConfirmed:
 					// if signature is confirmed, keep polling for finalized status
 					txm.handleConfirmedSignatureStatus(sig)

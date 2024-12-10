@@ -606,10 +606,10 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, 
 		}
 
 		// Reset the transaction state to 'Broadcasted' upon detecting a reorg.
-		// Even if the transaction might have already progressed to 'Processed' before the reorg,
-		// we reset it to 'Broadcasted' for simplicity.
-		// Any state advancements (e.g., moving to 'Processed' or 'Confirmed') will be picked up
-		// on the next status polling cycle.
+		// Even if the transaction might have already progressed to 'Processed' after the reorg,
+		// we reset it to 'Broadcasted' for simplicity here.
+		// Any state advancements (e.g., moving to 'Processed') will be picked up
+		// by the current status polling cycle after handling the reorg.
 		// This approach does not introduce any risk with the expiration logic since
 		// we check for status changes before considering a transaction for expiration.
 		pTx.state = Broadcasted

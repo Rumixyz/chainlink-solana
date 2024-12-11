@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"math/big"
 	"os"
 	"strconv"
@@ -679,6 +680,11 @@ func (r *wrappedTestChainReader) QueryKey(_ context.Context, _ types.BoundContra
 	return nil, nil
 }
 
+func (r *wrappedTestChainReader) QueryKeys(_ context.Context, _ []types.ContractKeyFilter, _ query.LimitAndSort) (iter.Seq2[string, types.Sequence], error) {
+	r.test.Skip("QueryKeys is not yet supported in Solana")
+	return nil, nil
+}
+
 func (r *wrappedTestChainReader) Bind(ctx context.Context, bindings []types.BoundContract) error {
 	return r.service.Bind(ctx, bindings)
 }
@@ -921,5 +927,10 @@ func (s *skipEventsChainReader) BatchGetLatestValues(_ context.Context, _ types.
 
 func (s *skipEventsChainReader) QueryKey(_ context.Context, _ types.BoundContract, _ query.KeyFilter, _ query.LimitAndSort, _ any) ([]types.Sequence, error) {
 	s.t.Skip("QueryKey is not yet supported in Solana")
+	return nil, nil
+}
+
+func (s *skipEventsChainReader) QueryKeys(_ context.Context, _ []types.ContractKeyFilter, _ query.LimitAndSort) (iter.Seq2[string, types.Sequence], error) {
+	s.t.Skip("QueryKeys is not yet supported in Solana")
 	return nil, nil
 }

@@ -477,7 +477,7 @@ func (p *orderedParser) sendReadySlots() error {
 	}
 
 	for count, idx := range rmvIdx {
-		p.blocks.Delete(idx - count)
+		heap.Remove(p.blocks, idx-count)
 	}
 
 	return nil
@@ -504,9 +504,4 @@ func (h *blockHeap) Pop() any {
 	*h = old[0 : n-1]
 
 	return x
-}
-
-func (h *blockHeap) Delete(idx int) {
-	old := *h
-	*h = slices.Delete(old, idx, idx+1)
 }

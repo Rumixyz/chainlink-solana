@@ -96,8 +96,14 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		if _, exists := c.sigToID[sig]; exists {
 			return ErrSigAlreadyExists
 		}
-		// validate id does not exist
+		// Check if ID already exists in any of the maps
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
+			return ErrIDAlreadyExists
+		}
+		if _, exists := c.confirmedTxs[tx.id]; exists {
+			return ErrIDAlreadyExists
+		}
+		if _, exists := c.finalizedErroredTxs[tx.id]; exists {
 			return ErrIDAlreadyExists
 		}
 		return nil
@@ -111,7 +117,14 @@ func (c *pendingTxContext) New(tx pendingTx, sig solana.Signature, cancel contex
 		if _, exists := c.sigToID[sig]; exists {
 			return "", ErrSigAlreadyExists
 		}
+		// Check if ID already exists in any of the maps
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
+			return "", ErrIDAlreadyExists
+		}
+		if _, exists := c.confirmedTxs[tx.id]; exists {
+			return "", ErrIDAlreadyExists
+		}
+		if _, exists := c.finalizedErroredTxs[tx.id]; exists {
 			return "", ErrIDAlreadyExists
 		}
 		// save cancel func

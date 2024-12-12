@@ -28,6 +28,7 @@ import (
 	mn "github.com/smartcontractkit/chainlink-solana/pkg/solana/client/multinode"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/internal"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/monitor"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 )
@@ -37,6 +38,7 @@ type Chain interface {
 
 	ID() string
 	Config() config.Config
+	LogPoller() logpoller.ILogPoller
 	TxManager() TxManager
 	// Reader returns a new Reader from the available list of nodes (if there are multiple, it will randomly select one)
 	Reader() (client.Reader, error)
@@ -89,6 +91,7 @@ type chain struct {
 	services.StateMachine
 	id             string
 	cfg            *config.TOMLConfig
+	lp             logpoller.ILogPoller
 	txm            *txm.Txm
 	balanceMonitor services.Service
 	lggr           logger.Logger
@@ -235,6 +238,7 @@ func newChain(id string, cfg *config.TOMLConfig, ks core.Keystore, lggr logger.L
 		clientCache: map[string]*verifiedCachedClient{},
 	}
 
+	var lc internal.Loader[client.Reader] = utils.NewLazyLoad(func() (client.Reader, error) { return ch.getClient() })
 	var tc internal.Loader[client.ReaderWriter] = utils.NewLazyLoad(func() (client.ReaderWriter, error) { return ch.getClient() })
 	var bc internal.Loader[monitor.BalanceClient] = utils.NewLazyLoad(func() (monitor.BalanceClient, error) { return ch.getClient() })
 
@@ -303,10 +307,13 @@ func newChain(id string, cfg *config.TOMLConfig, ks core.Keystore, lggr logger.L
 			return result.Signature(), result.Error()
 		}
 
-		tc = internal.NewLoader[client.ReaderWriter](func() (client.ReaderWriter, error) { return ch.multiNode.SelectRPC() })
-		bc = internal.NewLoader[monitor.BalanceClient](func() (monitor.BalanceClient, error) { return ch.multiNode.SelectRPC() })
+		// TODO: Can we just remove these? They nullify the lazy loaders initialized earlier, don't they?
+		//lc = internal.NewLoader[client.Reader](func() (client.Reader, error) { return ch.multiNode.SelectRPC() })
+		//tc = internal.NewLoader[client.ReaderWriter](func() (client.ReaderWriter, error) { return ch.multiNode.SelectRPC() })
+		//bc = internal.NewLoader[monitor.BalanceClient](func() (monitor.BalanceClient, error) { return ch.multiNode.SelectRPC() })
 	}
 
+	ch.lp = logpoller.NewLogPoller(logger.Sugared(logger.Named(lggr, "LogPoller")), logpoller.NewORM(ch.ID(), ds, lggr), lc)
 	ch.txm = txm.NewTxm(ch.id, tc, sendTx, cfg, ks, lggr)
 	ch.balanceMonitor = monitor.NewBalanceMonitor(ch.id, cfg, lggr, ks, bc)
 	return &ch, nil
@@ -394,6 +401,10 @@ func (c *chain) ID() string {
 
 func (c *chain) Config() config.Config {
 	return c.cfg
+}
+
+func (c *chain) LogPoller() logpoller.ILogPoller {
+	return c.lp
 }
 
 func (c *chain) TxManager() TxManager {

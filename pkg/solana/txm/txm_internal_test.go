@@ -1225,7 +1225,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	setupTxmTest := func(
 		txExpirationRebroadcast bool,
 		latestBlockhashFunc func() (*rpc.GetLatestBlockhashResult, error),
-		getLatestBlockFunc func() (*rpc.GetBlockResult, error),
+		getLatestBlockHeightFunc func() (uint64, error),
 		sendTxFunc func() (solana.Signature, error),
 		statuses map[solana.Signature]func() *rpc.SignatureStatusesResult,
 	) (*Txm, *mocks.ReaderWriter, *keyMocks.SimpleKeystore) {
@@ -1239,10 +1239,10 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 				},
 			).Maybe()
 		}
-		if getLatestBlockFunc != nil {
-			mc.On("GetLatestBlock", mock.Anything).Return(
-				func(_ context.Context) (*rpc.GetBlockResult, error) {
-					return getLatestBlockFunc()
+		if getLatestBlockHeightFunc != nil {
+			mc.On("GetLatestBlockHeight", mock.Anything).Return(
+				func(_ context.Context) (uint64, error) {
+					return getLatestBlockHeightFunc()
 				},
 			).Maybe()
 		}
@@ -1291,11 +1291,8 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
 		// Mock getLatestBlock to return a value greater than 0 for blockHeight
-		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
-			val := uint64(1500)
-			return &rpc.GetBlockResult{
-				BlockHeight: &val,
-			}, nil
+		getLatestBlockHeightFunc := func() (uint64, error) {
+			return 1500, nil
 		}
 
 		callCount := 0
@@ -1348,7 +1345,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			}
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
 
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast"
@@ -1425,11 +1422,8 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
 		// Mock getLatestBlock to return a value greater than 0
-		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
-			val := uint64(1500)
-			return &rpc.GetBlockResult{
-				BlockHeight: &val,
-			}, nil
+		getLatestBlockHeightFunc := func() (uint64, error) {
+			return 1500, nil
 		}
 
 		// Mock LatestBlockhash to return an invalid blockhash in the first 3 attempts (initial + 2 rebroadcasts)
@@ -1482,7 +1476,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			}
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
@@ -1510,11 +1504,8 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 		}
 
 		// Mock getLatestBlock to return a value greater than 0
-		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
-			val := uint64(1500)
-			return &rpc.GetBlockResult{
-				BlockHeight: &val,
-			}, nil
+		getLatestBlockHeightFunc := func() (uint64, error) {
+			return 1500, nil
 		}
 
 		callCount := 0
@@ -1547,7 +1538,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return out
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-confirmed-before-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))
@@ -1572,11 +1563,8 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 
 		// To force rebroadcast, first call needs to be smaller than blockHeight
 		// following rebroadcast call will go through because lastValidBlockHeight will be bigger than blockHeight
-		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
-			val := uint64(1500)
-			return &rpc.GetBlockResult{
-				BlockHeight: &val,
-			}, nil
+		getLatestBlockHeightFunc := func() (uint64, error) {
+			return 1500, nil
 		}
 
 		callCount := 0
@@ -1613,7 +1601,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 			return nil
 		}
 
-		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(txExpirationRebroadcast, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-rebroadcast-error"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))

@@ -323,7 +323,7 @@ type orderedParser struct {
 func newOrderedParser(parser ProgramEventProcessor, lggr logger.Logger) *orderedParser {
 	op := &orderedParser{
 		parser: parser,
-		blocks: &blockHeap{},
+		blocks: NewBlockHeap(),
 		ready:  make([]uint64, 0),
 		expect: make(map[uint64]int),
 		actual: make(map[uint64][]ProgramEvent),
@@ -334,8 +334,6 @@ func newOrderedParser(parser ProgramEventProcessor, lggr logger.Logger) *ordered
 		Start: op.start,
 		Close: op.close,
 	}.NewServiceEngine(lggr)
-
-	heap.Init(op.blocks)
 
 	return op
 }
@@ -486,6 +484,12 @@ func (p *orderedParser) sendReadySlots() error {
 var (
 	errExpectationsNotSet = errors.New("expectations not set")
 )
+
+func NewBlockHeap() *blockHeap {
+	h := &blockHeap{}
+	heap.Init(h)
+	return h
+}
 
 type blockHeap []uint64
 

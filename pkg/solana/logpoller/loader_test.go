@@ -1,9 +1,11 @@
 package logpoller_test
 
 import (
+	"container/heap"
 	"context"
 	"crypto/rand"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,7 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller"
-	mocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller/mocks"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller/mocks"
 )
 
 var (
@@ -108,6 +110,44 @@ func TestEncodedLogCollector_ParseSingleEvent(t *testing.T) {
 	tests.AssertEventually(t, func() bool {
 		return parser.Called()
 	})
+}
+
+func TestBlockHeap(t *testing.T) {
+	testBlocks := []uint64{53, 19, 105, 21, 6, 9}
+	expected := make([]uint64, len(testBlocks))
+	copy(expected, testBlocks)
+	slices.Sort(expected)
+
+	blocks := logpoller.NewBlockHeap()
+	for _, b := range testBlocks {
+		heap.Push(blocks, b)
+	}
+
+	// Current iteration pattern: fails
+	for i, b := range *blocks {
+		assert.Equal(t, expected[i], b)
+	}
+
+	// Suggested iteration pattern
+	for _, e := range expected {
+		block := (*blocks)[0]
+		assert.Equal(t, e, block)
+		//
+		// If waiting on information for block
+		//       break
+		//
+		// If expectations 0
+		//       heap.Pop(blocks)
+		//       continue
+		//
+		// If expectations met
+		//       ExpectBlock(block)
+		//		 heap.Pop(blocks)
+		//
+		// Else: return
+
+		assert.Equal(t, e, heap.Pop(blocks))
+	}
 }
 
 func TestEncodedLogCollector_MultipleEventOrdered(t *testing.T) {

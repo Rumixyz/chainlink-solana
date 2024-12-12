@@ -1637,7 +1637,7 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 	setupTxmTest := func(
 		txExpirationRebroadcast bool,
 		latestBlockhashFunc func() (*rpc.GetLatestBlockhashResult, error),
-		getLatestBlockFunc func() (*rpc.GetBlockResult, error),
+		getLatestBlockHeightFunc func() (uint64, error),
 		sendTxFunc func() (solana.Signature, error),
 		statuses map[solana.Signature]func() *rpc.SignatureStatusesResult,
 	) (*Txm, *mocks.ReaderWriter, *keyMocks.SimpleKeystore) {
@@ -1651,10 +1651,10 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 				},
 			).Maybe()
 		}
-		if getLatestBlockFunc != nil {
-			mc.On("GetLatestBlock", mock.Anything).Return(
-				func(_ context.Context) (*rpc.GetBlockResult, error) {
-					return getLatestBlockFunc()
+		if getLatestBlockHeightFunc != nil {
+			mc.On("GetLatestBlockHeight", mock.Anything).Return(
+				func(_ context.Context) (uint64, error) {
+					return getLatestBlockHeightFunc()
 				},
 			).Maybe()
 		}
@@ -1833,11 +1833,8 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 	t.Run("regressing from processed state rebroadcasts tx on expiration when enabled", func(t *testing.T) {
 		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
 
-		getLatestBlockFunc := func() (*rpc.GetBlockResult, error) {
-			val := uint64(1500)
-			return &rpc.GetBlockResult{
-				BlockHeight: &val,
-			}, nil
+		getLatestBlockHeightFunc := func() (uint64, error) {
+			return 1500, nil
 		}
 
 		latestBlockhashCallCount := 0
@@ -1904,7 +1901,7 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 			}
 		}
 
-		txm, _, mkey := setupTxmTest(true, latestBlockhashFunc, getLatestBlockFunc, sendTxFunc, statuses)
+		txm, _, mkey := setupTxmTest(true, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
 		tx, _ := getTx(t, 0, mkey)
 		txID := "test-reorg-from-processed-with-rebroadcast"
 		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID))

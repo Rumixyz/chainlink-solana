@@ -128,7 +128,7 @@ func TestEncodedLogCollector_MultipleEventOrdered(t *testing.T) {
 
 	latest.Store(uint64(40))
 
-	slots := []uint64{43, 42}
+	slots := []uint64{44, 43, 42, 41}
 	sigs := make([]solana.Signature, len(slots))
 	hashes := make([]solana.Hash, len(slots))
 
@@ -162,8 +162,10 @@ func TestEncodedLogCollector_MultipleEventOrdered(t *testing.T) {
 				}
 			}
 
-			if slot == 42 {
-				// force slot 42 to return after 43
+			// imitate loading block data out of order
+			if slot == 43 || slot == 41 {
+				// force slot 43 to return after 44
+				// same for 41 after 42
 				time.Sleep(1 * time.Second)
 			}
 
@@ -199,10 +201,22 @@ func TestEncodedLogCollector_MultipleEventOrdered(t *testing.T) {
 		return reflect.DeepEqual(parser.Events(), []logpoller.ProgramEvent{
 			{
 				BlockData: logpoller.BlockData{
+					SlotNumber:          41,
+					BlockHeight:         40,
+					BlockHash:           hashes[3],
+					TransactionHash:     sigs[3],
+					TransactionIndex:    0,
+					TransactionLogIndex: 0,
+				},
+				Prefix: ">",
+				Data:   "HDQnaQjSWwkNAAAASGVsbG8sIFdvcmxkISoAAAAAAAAA",
+			},
+			{
+				BlockData: logpoller.BlockData{
 					SlotNumber:          42,
 					BlockHeight:         41,
-					BlockHash:           hashes[1],
-					TransactionHash:     sigs[1],
+					BlockHash:           hashes[2],
+					TransactionHash:     sigs[2],
 					TransactionIndex:    0,
 					TransactionLogIndex: 0,
 				},
@@ -213,6 +227,18 @@ func TestEncodedLogCollector_MultipleEventOrdered(t *testing.T) {
 				BlockData: logpoller.BlockData{
 					SlotNumber:          43,
 					BlockHeight:         42,
+					BlockHash:           hashes[1],
+					TransactionHash:     sigs[1],
+					TransactionIndex:    0,
+					TransactionLogIndex: 0,
+				},
+				Prefix: ">",
+				Data:   "HDQnaQjSWwkNAAAASGVsbG8sIFdvcmxkISoAAAAAAAAA",
+			},
+			{
+				BlockData: logpoller.BlockData{
+					SlotNumber:          44,
+					BlockHeight:         43,
 					BlockHash:           hashes[0],
 					TransactionHash:     sigs[0],
 					TransactionIndex:    0,

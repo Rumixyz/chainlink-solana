@@ -640,14 +640,14 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 // An expired tx is one where it's blockhash lastValidBlockHeight (last valid block number) is smaller than the current block height (block number).
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currBlock, err := client.GetLatestBlock(ctx)
-	if err != nil || currBlock == nil || currBlock.BlockHeight == nil {
+	blockHeight, err := client.GetLatestBlockHeight(ctx)
+	if err != nil || blockHeight == 0 {
 		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
 	// Rebroadcast all expired txes using currBlockHeight (current block number)
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlock.BlockHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
+	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(blockHeight) {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", blockHeight)
 		// Removes all signatures associated to tx and cancels context.
 		_, err := txm.txs.Remove(tx.id)
 		if err != nil {

@@ -82,29 +82,47 @@ func TestPendingTxContext_new(t *testing.T) {
 	err := txs.New(msg)
 	require.NoError(t, err)
 	err = txs.AddSignature(cancel, msg.id, sig)
-	require.NoError(t, err)
+	require.NoError(t, err, "expected no error when adding a new transaction")
 
-	// Check it exists in signature map
+	// Check it exists in signature map and mapped to the correct txID
 	txInfo, exists := txs.sigToTxInfo[sig]
-	require.True(t, exists)
-	require.Equal(t, msg.id, txInfo.id)
+	require.True(t, exists, "signature should exist in sigToID map")
+	require.Equal(t, msg.id, txInfo.id, "signature should map to correct transaction ID")
 
-	// Check it exists in broadcasted map
+	// Check it exists in broadcasted map and that sigs match
 	tx, exists := txs.broadcastedProcessedTxs[msg.id]
-	require.True(t, exists)
-	require.Len(t, tx.signatures, 1)
-	require.Equal(t, sig, tx.signatures[0])
+	require.True(t, exists, "transaction should exist in broadcastedProcessedTxs map")
+	require.Len(t, tx.signatures, 1, "transaction should have one signature")
+	require.Equal(t, sig, tx.signatures[0], "signature should match")
 
 	// Check status is Broadcasted
-	require.Equal(t, Broadcasted, tx.state)
+	require.Equal(t, Broadcasted, tx.state, "transaction state should be Broadcasted")
 
-	// Check it does not exist in confirmed map
+	// Check it does not exist in confirmed nor finalized maps
 	_, exists = txs.confirmedTxs[msg.id]
-	require.False(t, exists)
-
-	// Check it does not exist in finalized map
+	require.False(t, exists, "transaction should not exist in confirmedTxs map")
 	_, exists = txs.finalizedErroredTxs[msg.id]
-	require.False(t, exists)
+	require.False(t, exists, "transaction should not exist in finalizedErroredTxs map")
+
+	// Attempt to add the same transaction again
+	err = txs.New(msg)
+	require.ErrorIs(t, err, ErrIDAlreadyExists, "expected ErrIDAlreadyExists when adding duplicate transaction ID")
+
+	// Simulate moving the transaction to confirmedTxs map
+	_, err = txs.OnConfirmed(sig)
+	require.NoError(t, err, "expected no error when confirming transaction")
+
+	// Attempt to add a new transaction with the same ID (now in confirmedTxs)
+	err = txs.New(pendingTx{id: msg.id})
+	require.ErrorIs(t, err, ErrIDAlreadyExists, "expected ErrIDAlreadyExists when adding transaction ID that exists in confirmedTxs")
+
+	// Simulate moving the transaction to finalizedErroredTxs map
+	_, err = txs.OnFinalized(sig, 10*time.Second)
+	require.NoError(t, err, "expected no error when finalizing transaction")
+
+	// Attempt to add a new transaction with the same ID (now in finalizedErroredTxs)
+	err = txs.New(pendingTx{id: msg.id})
+	require.ErrorIs(t, err, ErrIDAlreadyExists, "expected ErrIDAlreadyExists when adding transaction ID that exists in finalizedErroredTxs")
 }
 
 func TestPendingTxContext_add_signature(t *testing.T) {

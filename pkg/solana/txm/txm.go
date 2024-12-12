@@ -520,7 +520,7 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 
 	// Process error to determine the corresponding state and type.
 	// Skip marking as errored if error considered to not be a failure.
-	if txState, errType := txm.processError(sig, status.Err, false); errType != NoFailure {
+	if txState, errType := txm.ProcessError(sig, status.Err, false); errType != NoFailure {
 		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), txState, errType)
 		if err != nil {
 			txm.lggr.Infow(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "signature", sig, "error", err)
@@ -704,7 +704,7 @@ func (txm *Txm) simulate() {
 			}
 			// Process error to determine the corresponding state and type.
 			// Certain errors can be considered not to be failures during simulation to allow the process to continue
-			if txState, errType := txm.processError(msg.signatures[0], res.Err, true); errType != NoFailure {
+			if txState, errType := txm.ProcessError(msg.signatures[0], res.Err, true); errType != NoFailure {
 				id, err := txm.txs.OnError(msg.signatures[0], txm.cfg.TxRetentionTimeout(), txState, errType)
 				if err != nil {
 					txm.lggr.Errorw(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "err", err)
@@ -861,7 +861,7 @@ func (txm *Txm) EstimateComputeUnitLimit(ctx context.Context, tx *solanaGo.Trans
 		}
 		// Process error to determine the corresponding state and type.
 		// Certain errors can be considered not to be failures during simulation to allow the process to continue
-		if txState, errType := txm.processError(sig, res.Err, true); errType != NoFailure {
+		if txState, errType := txm.ProcessError(sig, res.Err, true); errType != NoFailure {
 			err := txm.txs.OnPrebroadcastError(id, txm.cfg.TxRetentionTimeout(), txState, errType)
 			if err != nil {
 				return 0, fmt.Errorf("failed to process error %v for tx ID %s: %w", res.Err, id, err)
@@ -904,8 +904,8 @@ func (txm *Txm) simulateTx(ctx context.Context, tx *solanaGo.Transaction) (res *
 	return
 }
 
-// processError parses and handles relevant errors found in simulation results
-func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulation bool) (txState TxState, errType TxErrType) {
+// ProcessError parses and handles relevant errors found in simulation results
+func (txm *Txm) ProcessError(sig solanaGo.Signature, resErr interface{}, simulation bool) (txState TxState, errType TxErrType) {
 	if resErr != nil {
 		// handle various errors
 		// https://github.com/solana-labs/solana/blob/master/sdk/src/transaction/error.rs
@@ -932,10 +932,6 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 				return txState, NoFailure
 			}
 			return Errored, errType
-		// transaction will encounter execution error/revert
-		case strings.Contains(errStr, "InstructionError"):
-			txm.lggr.Debugw("InstructionError", logValues...)
-			return Errored, errType
 		// transaction is already processed in the chain
 		case strings.Contains(errStr, "AlreadyProcessed"):
 			txm.lggr.Debugw("AlreadyProcessed", logValues...)
@@ -945,6 +941,38 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 				return txState, NoFailure
 			}
 			return Errored, errType
+		// transaction will encounter execution error/revert
+		case strings.Contains(errStr, "InstructionError"):
+			txm.lggr.Debugw("InstructionError", logValues...)
+			return FatallyErrored, errType
+		// transaction contains an invalid account reference
+		case strings.Contains(errStr, "InvalidAccountIndex"):
+			txm.lggr.Debugw("InvalidAccountIndex", logValues...)
+			return FatallyErrored, errType
+		// transaction loads a writable account that cannot be written
+		case strings.Contains(errStr, "InvalidWritableAccount"):
+			txm.lggr.Debugw("InvalidWritableAccount", logValues...)
+			return FatallyErrored, errType
+		// address lookup table not found
+		case strings.Contains(errStr, "AddressLookupTableNotFound"):
+			txm.lggr.Debugw("AddressLookupTableNotFound", logValues...)
+			return FatallyErrored, errType
+		// attempted to lookup addresses from an invalid account
+		case strings.Contains(errStr, "InvalidAddressLookupTableData"):
+			txm.lggr.Debugw("InvalidAddressLookupTableData", logValues...)
+			return FatallyErrored, errType
+		// address table lookup uses an invalid index
+		case strings.Contains(errStr, "InvalidAddressLookupTableIndex"):
+			txm.lggr.Debugw("InvalidAddressLookupTableIndex", logValues...)
+			return FatallyErrored, errType
+		// attempt to debit an account but found no record of a prior credit.
+		case strings.Contains(errStr, "AccountNotFound"):
+			txm.lggr.Debugw("AccountNotFound", logValues...)
+			return FatallyErrored, errType
+		// attempt to load a program that does not exist
+		case strings.Contains(errStr, "ProgramAccountNotFound"):
+			txm.lggr.Debugw("ProgramAccountNotFound", logValues...)
+			return FatallyErrored, errType
 		// unrecognized errors (indicates more concerning failures)
 		default:
 			// if simulating, return TxFailSimOther if error unknown

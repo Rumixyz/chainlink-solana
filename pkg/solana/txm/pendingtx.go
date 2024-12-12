@@ -108,8 +108,14 @@ func newPendingTxContext() *pendingTxContext {
 
 func (c *pendingTxContext) New(tx pendingTx) error {
 	err := c.withReadLock(func() error {
-		// validate id does not exist
+		// Check if ID already exists in any of the maps
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
+			return ErrIDAlreadyExists
+		}
+		if _, exists := c.confirmedTxs[tx.id]; exists {
+			return ErrIDAlreadyExists
+		}
+		if _, exists := c.finalizedErroredTxs[tx.id]; exists {
 			return ErrIDAlreadyExists
 		}
 		return nil
@@ -120,7 +126,14 @@ func (c *pendingTxContext) New(tx pendingTx) error {
 
 	// upgrade to write lock if id do not exist
 	_, err = c.withWriteLock(func() (string, error) {
+		// Check if ID already exists in any of the maps
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
+			return "", ErrIDAlreadyExists
+		}
+		if _, exists := c.confirmedTxs[tx.id]; exists {
+			return "", ErrIDAlreadyExists
+		}
+		if _, exists := c.finalizedErroredTxs[tx.id]; exists {
 			return "", ErrIDAlreadyExists
 		}
 		tx.signatures = []solana.Signature{}

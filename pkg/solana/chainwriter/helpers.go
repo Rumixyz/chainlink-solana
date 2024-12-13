@@ -93,26 +93,6 @@ func GetDebugIDAtLocation(args any, location string) (string, error) {
 	return debugID, nil
 }
 
-func GetValueAtLocation(args any, location string) ([][]byte, error) {
-	path := strings.Split(location, ".")
-
-	valueList, err := traversePath(args, path)
-	if err != nil {
-		return nil, err
-	}
-
-	var values [][]byte
-	for _, value := range valueList {
-		byteArray, ok := value.([]byte)
-		if !ok {
-			return nil, fmt.Errorf("invalid value format at path: %s", location)
-		}
-		values = append(values, byteArray)
-	}
-
-	return values, nil
-}
-
 func errorWithDebugID(err error, debugID string) error {
 	if debugID == "" {
 		return err

@@ -213,6 +213,7 @@ func decodeBorshIntoType(data []byte, typ reflect.Type) (interface{}, error) {
 // It handles both AddressSeeds (which are public keys) and ValueSeeds (which are byte arrays from input args).
 func getSeedBytes(ctx context.Context, lookup PDALookups, args any, derivedTableMap map[string]map[string][]*solana.AccountMeta, reader client.Reader) ([][]byte, error) {
 	var seedBytes [][]byte
+	maxSeedLength := 32
 
 	for _, seed := range lookup.Seeds {
 		if seed.Static != nil {

@@ -180,26 +180,9 @@ func (txm *Txm) run() {
 }
 
 // sendWithRetry attempts to send a transaction with exponential backoff retry logic.
-// It builds, signs and sends the initial tx with a new valid blockhash, and starts a retry routine with fee bumping if needed.
+// It builds, signs, sends the initial tx, and starts a retry routine with fee bumping if needed.
 // The function returns the signed transaction, its ID, and the initial signature for use in simulation.
 func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Transaction, string, solanaGo.Signature, error) {
-	// Assign new blockhash and lastValidBlockHeight to the transaction
-	// This is essential for tracking transaction rebroadcast
-	// Only the initial transaction should be sent with the updated blockhash
-	client, err := txm.client.Get()
-	if err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get client: %w", err)
-	}
-	blockhash, err := client.LatestBlockhash(ctx)
-	if err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get latest blockhash: %w", err)
-	}
-	if blockhash == nil || blockhash.Value == nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, errors.New("nil pointer returned from LatestBlockhash")
-	}
-	msg.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
-
 	// Build and sign initial transaction setting compute unit price and limit
 	initTx, err := txm.buildTx(ctx, msg, 0)
 	if err != nil {
@@ -512,7 +495,7 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 
 	// Process error to determine the corresponding state and type.
 	// Skip marking as errored if error considered to not be a failure.
-	if txState, errType := txm.processError(sig, status.Err, false); errType != NoFailure {
+	if txState, errType := txm.ProcessError(sig, status.Err, false); errType != NoFailure {
 		id, err := txm.txs.OnError(sig, txm.cfg.TxRetentionTimeout(), txState, errType)
 		if err != nil {
 			txm.lggr.Infow(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "signature", sig, "error", err)
@@ -567,31 +550,49 @@ func (txm *Txm) handleFinalizedSignatureStatus(sig solanaGo.Signature) {
 }
 
 // rebroadcastExpiredTxs attempts to rebroadcast all transactions that are in broadcasted state and have expired.
-// An expired tx is one where it's blockhash lastValidBlockHeight is smaller than the current slot height.
+// An expired tx is one where it's blockhash lastValidBlockHeight (last valid block number) is smaller than the current block height (block number).
+// The function loops through all expired txes, rebroadcasts them with a new blockhash, and updates the lastValidBlockHeight.
 // If any error occurs during rebroadcast attempt, they are discarded, and the function continues with the next transaction.
 func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderWriter) {
-	currBlockHeight, err := client.GetLatestBlock(ctx)
-	if err != nil || currBlockHeight == nil || currBlockHeight.BlockHeight == nil {
+	currBlock, err := client.GetLatestBlock(ctx)
+	if err != nil || currBlock == nil || currBlock.BlockHeight == nil {
 		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
-	// Rebroadcast all expired txes
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(*currBlockHeight.BlockHeight) {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", "currentBlockHeight", *currBlockHeight.BlockHeight, tx.lastValidBlockHeight)
-		if len(tx.signatures) == 0 { // prevent panic, shouldn't happen.
-			txm.lggr.Errorw("no signatures found for expired transaction", "id", tx.id)
-			continue
-		}
+
+	// Get all expired broadcasted transactions at current block number. Safe to quit if no txes are found.
+	expiredBroadcastedTxes := txm.txs.ListAllExpiredBroadcastedTxs(*currBlock.BlockHeight)
+	if len(expiredBroadcastedTxes) == 0 {
+		return
+	}
+
+	// Request new blockhash and loop through all expired txes overwriting with new blockhash and rebroadcasting
+	for _, tx := range expiredBroadcastedTxes {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
 		// Removes all signatures associated to tx and cancels context.
 		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
+
+		blockhash, err := client.LatestBlockhash(ctx)
+		if err != nil {
+			txm.lggr.Errorw("failed to get latest blockhash for rebroadcast", "error", err)
+			return
+		}
+		if blockhash == nil || blockhash.Value == nil {
+			txm.lggr.Errorw("nil pointer returned from LatestBlockhash for rebroadcast")
+			return
+		}
+
+		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
+		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice() // update compute unit price (priority fee) for rebroadcast
 		rebroadcastTx := pendingTx{
-			tx:  tx.tx,
-			cfg: tx.cfg,
-			id:  tx.id, // using same id in case it was set by caller and we need to maintain it.
+			tx:                   tx.tx,
+			cfg:                  tx.cfg,
+			id:                   tx.id, // using same id in case it was set by caller and we need to maintain it.
+			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
 		}
 		// call sendWithRetry directly to avoid enqueuing
 		_, _, _, sendErr := txm.sendWithRetry(ctx, rebroadcastTx)
@@ -637,7 +638,7 @@ func (txm *Txm) simulate() {
 			}
 			// Process error to determine the corresponding state and type.
 			// Certain errors can be considered not to be failures during simulation to allow the process to continue
-			if txState, errType := txm.processError(msg.signatures[0], res.Err, true); errType != NoFailure {
+			if txState, errType := txm.ProcessError(msg.signatures[0], res.Err, true); errType != NoFailure {
 				id, err := txm.txs.OnError(msg.signatures[0], txm.cfg.TxRetentionTimeout(), txState, errType)
 				if err != nil {
 					txm.lggr.Errorw(fmt.Sprintf("failed to mark transaction as %s", txState.String()), "id", id, "err", err)
@@ -672,7 +673,7 @@ func (txm *Txm) reap() {
 }
 
 // Enqueue enqueues a msg destined for the solana chain.
-func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txCfgs ...SetTxConfig) error {
+func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txLastValidBlockHeight uint64, txCfgs ...SetTxConfig) error {
 	if err := txm.Ready(); err != nil {
 		return fmt.Errorf("error in soltxm.Enqueue: %w", err)
 	}
@@ -720,15 +721,10 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	msg := pendingTx{
-		tx:  *tx,
-		cfg: cfg,
-	}
-
-	// If ID was not set by caller, create one.
-	if txID != nil && *txID != "" {
-		msg.id = *txID
-	} else {
-		msg.id = uuid.New().String()
+		id:                   id,
+		tx:                   *tx,
+		cfg:                  cfg,
+		lastValidBlockHeight: txLastValidBlockHeight,
 	}
 
 	select {
@@ -800,7 +796,7 @@ func (txm *Txm) EstimateComputeUnitLimit(ctx context.Context, tx *solanaGo.Trans
 		}
 		// Process error to determine the corresponding state and type.
 		// Certain errors can be considered not to be failures during simulation to allow the process to continue
-		if txState, errType := txm.processError(sig, res.Err, true); errType != NoFailure {
+		if txState, errType := txm.ProcessError(sig, res.Err, true); errType != NoFailure {
 			err := txm.txs.OnPrebroadcastError(id, txm.cfg.TxRetentionTimeout(), txState, errType)
 			if err != nil {
 				return 0, fmt.Errorf("failed to process error %v for tx ID %s: %w", res.Err, id, err)
@@ -843,8 +839,8 @@ func (txm *Txm) simulateTx(ctx context.Context, tx *solanaGo.Transaction) (res *
 	return
 }
 
-// processError parses and handles relevant errors found in simulation results
-func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulation bool) (txState TxState, errType TxErrType) {
+// ProcessError parses and handles relevant errors found in simulation results
+func (txm *Txm) ProcessError(sig solanaGo.Signature, resErr interface{}, simulation bool) (txState TxState, errType TxErrType) {
 	if resErr != nil {
 		// handle various errors
 		// https://github.com/solana-labs/solana/blob/master/sdk/src/transaction/error.rs
@@ -871,10 +867,6 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 				return txState, NoFailure
 			}
 			return Errored, errType
-		// transaction will encounter execution error/revert
-		case strings.Contains(errStr, "InstructionError"):
-			txm.lggr.Debugw("InstructionError", logValues...)
-			return Errored, errType
 		// transaction is already processed in the chain
 		case strings.Contains(errStr, "AlreadyProcessed"):
 			txm.lggr.Debugw("AlreadyProcessed", logValues...)
@@ -884,6 +876,38 @@ func (txm *Txm) processError(sig solanaGo.Signature, resErr interface{}, simulat
 				return txState, NoFailure
 			}
 			return Errored, errType
+		// transaction will encounter execution error/revert
+		case strings.Contains(errStr, "InstructionError"):
+			txm.lggr.Debugw("InstructionError", logValues...)
+			return FatallyErrored, errType
+		// transaction contains an invalid account reference
+		case strings.Contains(errStr, "InvalidAccountIndex"):
+			txm.lggr.Debugw("InvalidAccountIndex", logValues...)
+			return FatallyErrored, errType
+		// transaction loads a writable account that cannot be written
+		case strings.Contains(errStr, "InvalidWritableAccount"):
+			txm.lggr.Debugw("InvalidWritableAccount", logValues...)
+			return FatallyErrored, errType
+		// address lookup table not found
+		case strings.Contains(errStr, "AddressLookupTableNotFound"):
+			txm.lggr.Debugw("AddressLookupTableNotFound", logValues...)
+			return FatallyErrored, errType
+		// attempted to lookup addresses from an invalid account
+		case strings.Contains(errStr, "InvalidAddressLookupTableData"):
+			txm.lggr.Debugw("InvalidAddressLookupTableData", logValues...)
+			return FatallyErrored, errType
+		// address table lookup uses an invalid index
+		case strings.Contains(errStr, "InvalidAddressLookupTableIndex"):
+			txm.lggr.Debugw("InvalidAddressLookupTableIndex", logValues...)
+			return FatallyErrored, errType
+		// attempt to debit an account but found no record of a prior credit.
+		case strings.Contains(errStr, "AccountNotFound"):
+			txm.lggr.Debugw("AccountNotFound", logValues...)
+			return FatallyErrored, errType
+		// attempt to load a program that does not exist
+		case strings.Contains(errStr, "ProgramAccountNotFound"):
+			txm.lggr.Debugw("ProgramAccountNotFound", logValues...)
+			return FatallyErrored, errType
 		// unrecognized errors (indicates more concerning failures)
 		default:
 			// if simulating, return TxFailSimOther if error unknown

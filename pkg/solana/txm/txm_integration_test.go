@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	relayconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 
@@ -103,21 +104,21 @@ func TestTxm_Integration_ExpirationRebroadcast(t *testing.T) {
 			}
 
 			// Verify rebroadcast logs
-			rebroadcastLogs := observer.FilterMessageSnippet("rebroadcast transaction sent").All()
-			rebroadcastLogs2 := observer.FilterMessageSnippet("transaction expired, rebroadcasting").All()
+			rebroadcastLogs := observer.FilterMessageSnippet("rebroadcast transaction sent").Len()
+			rebroadcastLogs2 := observer.FilterMessageSnippet("transaction expired, rebroadcasting").Len()
 			if tc.expectRebroadcast {
-				require.NotEmpty(t, rebroadcastLogs, "Expected rebroadcast log message not found")
-				require.NotEmpty(t, rebroadcastLogs2, "Expected rebroadcast log message not found")
+				require.Equal(t, 1, rebroadcastLogs, "Expected rebroadcast log message not found")
+				require.Equal(t, 1, rebroadcastLogs2, "Expected rebroadcast log message not found")
 			} else {
-				require.Empty(t, rebroadcastLogs, "Rebroadcast should not occur")
-				require.Empty(t, rebroadcastLogs2, "Rebroadcast should not occur")
+				require.Equal(t, 0, rebroadcastLogs, "Rebroadcast should not occur")
+				require.Equal(t, 0, rebroadcastLogs2, "Rebroadcast should not occur")
 			}
 		})
 	}
 }
 
 func setup(t *testing.T, url string, txExpirationRebroadcast bool) (context.Context, *solanaClient.Client, *txm.Txm, solana.PublicKey, solana.PublicKey, *observer.ObservedLogs) {
-	ctx := context.Background()
+	ctx := tests.Context(t)
 
 	// Generate sender and receiver keys and fund sender account
 	senderKey, err := solana.NewRandomPrivateKey()

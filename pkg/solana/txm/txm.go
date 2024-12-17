@@ -566,28 +566,28 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		return
 	}
 
-	// Request new blockhash and loop through all expired txes overwriting with new blockhash and rebroadcasting
+	blockhash, err := client.LatestBlockhash(ctx)
+	if err != nil {
+		txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
+		return
+	}
+	if blockhash == nil || blockhash.Value == nil {
+		txm.lggr.Errorw("nil pointer returned from getLatestBlockhash for rebroadcast")
+		return
+	}
+
+	// rebroadcast each expired tx after updating blockhash, lastValidBlockHeight and compute unit price (priority fee)
 	for _, tx := range expiredBroadcastedTxes {
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", *currBlock.BlockHeight)
-		// Removes all signatures associated to tx and cancels context.
+		// Removes all signatures associated to prior tx and cancels context.
 		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
 
-		blockhash, err := client.LatestBlockhash(ctx)
-		if err != nil {
-			txm.lggr.Errorw("failed to get latest blockhash for rebroadcast", "error", err)
-			return
-		}
-		if blockhash == nil || blockhash.Value == nil {
-			txm.lggr.Errorw("nil pointer returned from LatestBlockhash for rebroadcast")
-			return
-		}
-
 		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice() // update compute unit price (priority fee) for rebroadcast
+		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice()
 		rebroadcastTx := pendingTx{
 			tx:                   tx.tx,
 			cfg:                  tx.cfg,

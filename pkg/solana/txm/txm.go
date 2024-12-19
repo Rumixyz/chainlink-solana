@@ -180,26 +180,9 @@ func (txm *Txm) run() {
 }
 
 // sendWithRetry attempts to send a transaction with exponential backoff retry logic.
-// It builds, signs and sends the initial tx with a new valid blockhash, and starts a retry routine with fee bumping if needed.
+// It builds, signs, sends the initial tx, and starts a retry routine with fee bumping if needed.
 // The function returns the signed transaction, its ID, and the initial signature for use in simulation.
 func (txm *Txm) sendWithRetry(ctx context.Context, msg pendingTx) (solanaGo.Transaction, string, solanaGo.Signature, error) {
-	// Assign new blockhash and lastValidBlockHeight (last valid block number) to the transaction
-	// This is essential for tracking transaction rebroadcast
-	// Only the initial transaction should be sent with the updated blockhash
-	client, err := txm.client.Get()
-	if err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get client: %w", err)
-	}
-	blockhash, err := client.LatestBlockhash(ctx)
-	if err != nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, fmt.Errorf("failed to get latest blockhash: %w", err)
-	}
-	if blockhash == nil || blockhash.Value == nil {
-		return solanaGo.Transaction{}, "", solanaGo.Signature{}, errors.New("nil pointer returned from LatestBlockhash")
-	}
-	msg.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-	msg.lastValidBlockHeight = blockhash.Value.LastValidBlockHeight
-
 	// Build and sign initial transaction setting compute unit price and limit
 	initTx, err := txm.buildTx(ctx, msg, 0)
 	if err != nil {
@@ -394,7 +377,7 @@ func (txm *Txm) handleRetry(ctx context.Context, cancel context.CancelFunc, msg 
 	}
 }
 
-// confirm is a goroutine that continuously polls for transaction confirmations and handles rebroadcasts expired transactions if enabled.
+// confirm is a goroutine that continuously polls for transaction confirmations. It also handles reorgs and expired transactions rebroadcasting.
 // The function runs until the chStop channel signals to stop.
 func (txm *Txm) confirm() {
 	defer txm.done.Done()
@@ -407,7 +390,7 @@ func (txm *Txm) confirm() {
 		case <-ctx.Done():
 			return
 		case <-tick:
-			// If no signatures to confirm and rebroadcast, we can break loop as there's nothing to process.
+			// If no signatures to confirm, we can break loop as there's nothing to process.
 			if txm.InflightTxs() == 0 {
 				break
 			}
@@ -645,20 +628,40 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		txm.lggr.Errorw("failed to get current block height", "error", err)
 		return
 	}
-	// Rebroadcast all expired txes using currBlockHeight (current block number)
-	for _, tx := range txm.txs.ListAllExpiredBroadcastedTxs(blockHeight) {
+
+	// Get all expired broadcasted transactions at current block number. Safe to quit if no txes are found.
+	expiredBroadcastedTxes := txm.txs.ListAllExpiredBroadcastedTxs(blockHeight)
+	if len(expiredBroadcastedTxes) == 0 {
+		return
+	}
+
+	blockhash, err := client.LatestBlockhash(ctx)
+	if err != nil {
+		txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
+		return
+	}
+	if blockhash == nil || blockhash.Value == nil {
+		txm.lggr.Errorw("nil pointer returned from getLatestBlockhash for rebroadcast")
+		return
+	}
+
+	// rebroadcast each expired tx after updating blockhash, lastValidBlockHeight and compute unit price (priority fee)
+	for _, tx := range expiredBroadcastedTxes {
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", blockHeight)
-		// Removes all signatures associated to tx and cancels context.
+		// Removes all signatures associated to prior tx and cancels context.
 		_, err := txm.txs.Remove(tx.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
 			continue
 		}
-		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice() // update compute unit price (priority fee) for rebroadcast
+
+		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
+		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice()
 		rebroadcastTx := pendingTx{
-			tx:  tx.tx,
-			cfg: tx.cfg,
-			id:  tx.id, // using same id in case it was set by caller and we need to maintain it.
+			tx:                   tx.tx,
+			cfg:                  tx.cfg,
+			id:                   tx.id, // using same id in case it was set by caller and we need to maintain it.
+			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
 		}
 		// call sendWithRetry directly to avoid enqueuing
 		_, _, _, sendErr := txm.sendWithRetry(ctx, rebroadcastTx)
@@ -739,7 +742,7 @@ func (txm *Txm) reap() {
 }
 
 // Enqueue enqueues a msg destined for the solana chain.
-func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txCfgs ...SetTxConfig) error {
+func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Transaction, txID *string, txLastValidBlockHeight uint64, txCfgs ...SetTxConfig) error {
 	if err := txm.Ready(); err != nil {
 		return fmt.Errorf("error in soltxm.Enqueue: %w", err)
 	}
@@ -787,9 +790,10 @@ func (txm *Txm) Enqueue(ctx context.Context, accountID string, tx *solanaGo.Tran
 	}
 
 	msg := pendingTx{
-		id:  id,
-		tx:  *tx,
-		cfg: cfg,
+		id:                   id,
+		tx:                   *tx,
+		cfg:                  cfg,
+		lastValidBlockHeight: txLastValidBlockHeight,
 	}
 
 	select {

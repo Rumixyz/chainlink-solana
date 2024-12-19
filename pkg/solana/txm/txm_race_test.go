@@ -9,7 +9,6 @@ import (
 	"time"
 
 	solanaGo "github.com/gagliardetto/solana-go"
-	solanaGoRpc "github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -82,13 +81,6 @@ func TestTxm_SendWithRetry_Race(t *testing.T) {
 		assert.Contains(t, lastLog.Message, "stopped tx retry") // assert that all retry goroutines exit successfully
 	}
 	client := clientmocks.NewReaderWriter(t)
-	client.On("LatestBlockhash", mock.Anything).Return(&solanaGoRpc.GetLatestBlockhashResult{
-		Value: &solanaGoRpc.LatestBlockhashResult{
-			LastValidBlockHeight: 100,
-			Blockhash:            solanaGo.Hash{},
-		},
-	}, nil)
-
 	t.Run("delay in rebroadcasting tx", func(t *testing.T) {
 		txs := map[string]solanaGo.Signature{}
 		var lock sync.RWMutex

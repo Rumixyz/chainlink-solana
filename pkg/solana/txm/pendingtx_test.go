@@ -773,7 +773,7 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		err = txs.AddSignature(cancel, msg.id, sig)
 		require.NoError(t, err)
 
-		// Transition to errored state
+		// Transition to confirmed state
 		id, err := txs.OnConfirmed(sig)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
@@ -810,12 +810,12 @@ func TestPendingTxContext_on_error(t *testing.T) {
 		err = txs.AddSignature(cancel, msg.id, sig)
 		require.NoError(t, err)
 
-		// Transition to confirmed state
+		// Transition to finalized state
 		id, err := txs.OnFinalized(sig, retentionTimeout)
 		require.NoError(t, err)
 		require.Equal(t, msg.id, id)
 
-		// Transition back to confirmed state
+		// Transition to errored state
 		id, err = txs.OnError(sig, retentionTimeout, Errored, 0)
 		require.Error(t, err)
 		require.Equal(t, "", id)
@@ -960,9 +960,11 @@ func TestPendingTxContext_remove(t *testing.T) {
 	id, err = txs.Remove(broadcastedID)
 	require.NoError(t, err)
 	require.Equal(t, broadcastedMsg.id, id)
+
 	// Check removed from broadcasted map
 	_, exists := txs.broadcastedProcessedTxs[broadcastedMsg.id]
 	require.False(t, exists)
+
 	// Check all signatures removed from sig map
 	_, exists = txs.sigToTxInfo[broadcastedSig1]
 	require.False(t, exists)
@@ -973,9 +975,11 @@ func TestPendingTxContext_remove(t *testing.T) {
 	id, err = txs.Remove(processedID)
 	require.NoError(t, err)
 	require.Equal(t, processedMsg.id, id)
+
 	// Check removed from broadcasted map
 	_, exists = txs.broadcastedProcessedTxs[processedMsg.id]
 	require.False(t, exists)
+
 	// Check all signatures removed from sig map
 	_, exists = txs.sigToTxInfo[processedSig]
 	require.False(t, exists)
@@ -984,9 +988,11 @@ func TestPendingTxContext_remove(t *testing.T) {
 	id, err = txs.Remove(confirmedID)
 	require.NoError(t, err)
 	require.Equal(t, confirmedMsg.id, id)
+
 	// Check removed from confirmed map
 	_, exists = txs.confirmedTxs[confirmedMsg.id]
 	require.False(t, exists)
+
 	// Check all signatures removed from sig map
 	_, exists = txs.sigToTxInfo[confirmedSig]
 	require.False(t, exists)
@@ -1123,9 +1129,11 @@ func TestPendingTxContext_race(t *testing.T) {
 
 		go func() {
 			assert.NotPanics(t, func() { txCtx.Remove(txID) }) //nolint // no need to check error
+			assert.NotPanics(t, func() { txCtx.Remove(txID) }) //nolint // no need to check error
 			wg.Done()
 		}()
 		go func() {
+			assert.NotPanics(t, func() { txCtx.Remove(txID) }) //nolint // no need to check error
 			assert.NotPanics(t, func() { txCtx.Remove(txID) }) //nolint // no need to check error
 			wg.Done()
 		}()
@@ -1154,8 +1162,8 @@ func TestGetTxState(t *testing.T) {
 	err = txs.AddSignature(cancel, broadcastedMsg.id, broadcastedSig)
 	require.NoError(t, err)
 
-	var state TxState
 	// Create new processed transaction
+	var state TxState
 	processedMsg := pendingTx{id: uuid.NewString()}
 	err = txs.New(processedMsg)
 	require.NoError(t, err)
@@ -1164,6 +1172,7 @@ func TestGetTxState(t *testing.T) {
 	id, err := txs.OnProcessed(processedSig)
 	require.NoError(t, err)
 	require.Equal(t, processedMsg.id, id)
+
 	// Check Processed state is returned
 	state, err = txs.GetTxState(processedMsg.id)
 	require.NoError(t, err)
@@ -1178,6 +1187,7 @@ func TestGetTxState(t *testing.T) {
 	id, err = txs.OnConfirmed(confirmedSig)
 	require.NoError(t, err)
 	require.Equal(t, confirmedMsg.id, id)
+
 	// Check Confirmed state is returned
 	state, err = txs.GetTxState(confirmedMsg.id)
 	require.NoError(t, err)
@@ -1192,6 +1202,7 @@ func TestGetTxState(t *testing.T) {
 	id, err = txs.OnFinalized(finalizedSig, retentionTimeout)
 	require.NoError(t, err)
 	require.Equal(t, finalizedMsg.id, id)
+
 	// Check Finalized state is returned
 	state, err = txs.GetTxState(finalizedMsg.id)
 	require.NoError(t, err)
@@ -1206,6 +1217,7 @@ func TestGetTxState(t *testing.T) {
 	id, err = txs.OnError(erroredSig, retentionTimeout, Errored, 0)
 	require.NoError(t, err)
 	require.Equal(t, erroredMsg.id, id)
+
 	// Check Errored state is returned
 	state, err = txs.GetTxState(erroredMsg.id)
 	require.NoError(t, err)
@@ -1220,6 +1232,7 @@ func TestGetTxState(t *testing.T) {
 	id, err = txs.OnError(fatallyErroredSig, retentionTimeout, FatallyErrored, 0)
 	require.NoError(t, err)
 	require.Equal(t, fatallyErroredMsg.id, id)
+
 	// Check Errored state is returned
 	state, err = txs.GetTxState(fatallyErroredMsg.id)
 	require.NoError(t, err)

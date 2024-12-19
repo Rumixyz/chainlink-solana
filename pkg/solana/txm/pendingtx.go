@@ -112,6 +112,10 @@ func (c *pendingTxContext) New(tx pendingTx) error {
 		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
 			return ErrIDAlreadyExists
 		}
+		// Check if ID already exists in any of the maps
+		if _, exists := c.broadcastedProcessedTxs[tx.id]; exists {
+			return ErrIDAlreadyExists
+		}
 		if _, exists := c.confirmedTxs[tx.id]; exists {
 			return ErrIDAlreadyExists
 		}
@@ -194,7 +198,7 @@ func (c *pendingTxContext) Remove(id string) (string, error) {
 	err := c.withReadLock(func() error {
 		_, broadcastedIDExists := c.broadcastedProcessedTxs[id]
 		_, confirmedIDExists := c.confirmedTxs[id]
-		// transcation does not exist in tx maps
+		// transaction does not exist in tx maps
 		if !broadcastedIDExists && !confirmedIDExists {
 			return ErrTransactionNotFound
 		}
@@ -618,13 +622,10 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, 
 			return "", ErrTransactionNotFound
 		}
 
-		// Reset the transaction state to 'Broadcasted' upon detecting a reorg.
-		// Even if the transaction might have already progressed to 'Processed' after the reorg,
-		// we reset it to 'Broadcasted' for simplicity here.
-		// Any state advancements (e.g., moving to 'Processed') will be picked up
-		// by the current status polling cycle after handling the reorg.
-		// This approach does not introduce any risk with the expiration logic since
-		// we check for status changes before considering a transaction for expiration.
+		// Reset the tx state to 'Broadcasted' upon detecting a reorg.
+		// Even if the tx might have already progressed to 'Processed' after the reorg, we reset it to 'Broadcasted' for simplicity here.
+		// Any state advancements (e.g., moving to 'Processed') will be picked up by the current status polling cycle after handling the reorg.
+		// This does not introduce risks with the expiration logic since we check for status changes before considering a tx for expiration.
 		pTx.state = Broadcasted
 		c.broadcastedProcessedTxs[id] = pTx
 

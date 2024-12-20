@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,13 +21,16 @@ import (
 	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/gagliardetto/solana-go/text"
 	"github.com/stretchr/testify/require"
+	"github.com/test-go/testify/mock"
 
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	commontestutils "github.com/smartcontractkit/chainlink-common/pkg/loop/testutils"
+	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	. "github.com/smartcontractkit/chainlink-common/pkg/types/interfacetests" //nolint common practice to import test mods with .
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query/primitives"
+	commonutils "github.com/smartcontractkit/chainlink-common/pkg/utils"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"
@@ -34,7 +39,11 @@ import (
 	"github.com/smartcontractkit/chainlink-solana/integration-tests/solclient"
 	"github.com/smartcontractkit/chainlink-solana/integration-tests/utils"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/chainreader"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/chainwriter"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
+	keyMocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
 	solanautils "github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
 )
 
@@ -127,7 +136,9 @@ type SolanaChainComponentsInterfaceTesterHelper[T TestingT[T]] interface {
 	Context(t T) context.Context
 	Logger(t T) logger.Logger
 	GetJSONEncodedIDL(t T) []byte
-	CreateAccount(t T, value uint64) solana.PublicKey
+	CreateAccount(t T, it SolanaChainComponentsInterfaceTester[T], value uint64) solana.PublicKey
+	TXM() *txm.TxManager
+	SolanaClient() *client.Client
 }
 
 type SolanaChainComponentsInterfaceTester[T TestingT[T]] struct {
@@ -135,6 +146,7 @@ type SolanaChainComponentsInterfaceTester[T TestingT[T]] struct {
 	Helper               SolanaChainComponentsInterfaceTesterHelper[T]
 	cr                   *chainreader.SolanaChainReaderService
 	contractReaderConfig config.ContractReader
+	chainWriterConfig    chainwriter.ChainWriterConfig
 }
 
 func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
@@ -173,6 +185,41 @@ func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
 			},
 		},
 	}
+
+	it.chainWriterConfig = chainwriter.ChainWriterConfig{
+		Programs: map[string]chainwriter.ProgramConfig{
+			AnyContractName: {
+				IDL: string(it.Helper.GetJSONEncodedIDL(t)),
+				Methods: map[string]chainwriter.MethodConfig{
+					"initialize": {
+						FromAddress:        solana.MustPrivateKeyFromBase58(solclient.DefaultPrivateKeysSolValidator[1]).PublicKey().String(),
+						InputModifications: nil,
+						ChainSpecificName:  "initialize",
+						LookupTables:       chainwriter.LookupTables{},
+						Accounts: []chainwriter.Lookup{
+							chainwriter.PDALookups{
+								Name: "Account",
+								PublicKey: chainwriter.AccountConstant{
+									Name:    "ProgramID",
+									Address: programPubKey,
+								},
+								Seeds: []chainwriter.Seed{
+									{Static: []byte("data")},
+									{Dynamic: chainwriter.AccountLookup{
+										Name:     "TestIDX",
+										Location: "testIdx",
+									}},
+								},
+								IsWritable: true,
+								IsSigner:   false,
+							},
+						},
+						DebugIDLocation: "",
+					},
+				},
+			},
+		},
+	}
 }
 
 func (it *SolanaChainComponentsInterfaceTester[T]) Name() string {
@@ -204,14 +251,18 @@ func (it *SolanaChainComponentsInterfaceTester[T]) GetContractReader(t T) types.
 }
 
 func (it *SolanaChainComponentsInterfaceTester[T]) GetContractWriter(t T) types.ContractWriter {
-	return nil
+	cw, err := chainwriter.NewSolanaChainWriterService(it.Helper.Logger(t), it.Helper.SolanaClient(), *it.Helper.TXM(), nil, it.chainWriterConfig)
+	require.NoError(t, err)
+
+	servicetest.Run(t, cw)
+	return cw
 }
 
 func (it *SolanaChainComponentsInterfaceTester[T]) GetBindings(t T) []types.BoundContract {
 	// Create a new account with fresh state for each test
 	return []types.BoundContract{
-		{Name: AnyContractName, Address: it.Helper.CreateAccount(t, AnyValueToReadWithoutAnArgument).String()},
-		{Name: AnySecondContractName, Address: it.Helper.CreateAccount(t, AnyDifferentValueToReadWithoutAnArgument).String()},
+		{Name: AnyContractName, Address: it.Helper.CreateAccount(t, *it, AnyValueToReadWithoutAnArgument).String()},
+		{Name: AnySecondContractName, Address: it.Helper.CreateAccount(t, *it, AnyDifferentValueToReadWithoutAnArgument).String()},
 	}
 }
 
@@ -234,6 +285,8 @@ type helper struct {
 	idlBts    []byte
 	nonce     uint64
 	nonceMu   sync.Mutex
+	txm       txm.TxManager
+	sc        *client.Client
 }
 
 func (h *helper) Init(t *testing.T) {
@@ -250,6 +303,26 @@ func (h *helper) Init(t *testing.T) {
 
 	solanautils.FundAccounts(t, []solana.PrivateKey{privateKey}, h.rpcClient)
 
+	cfg := config.NewDefault()
+	solanaClient, err := client.NewClient(h.rpcURL, cfg, 5*time.Second, nil)
+	require.NoError(t, err)
+
+	h.sc = solanaClient
+
+	loader := commonutils.NewLazyLoad(func() (client.ReaderWriter, error) { return solanaClient, nil })
+	mkey := keyMocks.NewSimpleKeystore(t)
+	mkey.On("Sign", mock.Anything, privateKey.PublicKey().String(), mock.Anything).Return(func(_ context.Context, _ string, data []byte) []byte {
+		sig, _ := privateKey.Sign(data)
+		verifySignature(privateKey.PublicKey(), sig[:], data)
+		fmt.Printf("Signed for %s: %x\n", privateKey.PublicKey().String(), sig)
+		return sig[:]
+	}, nil)
+	lggr := logger.Test(t)
+
+	txm := txm.NewTxm("localnet", loader, nil, cfg, mkey, lggr)
+	txm.Start(tests.Context(t))
+	h.txm = txm
+
 	pubkey, err := solana.PublicKeyFromBase58(programPubKey)
 	require.NoError(t, err)
 
@@ -257,8 +330,26 @@ func (h *helper) Init(t *testing.T) {
 	h.programID = pubkey
 }
 
+func verifySignature(publicKey solana.PublicKey, signature []byte, message []byte) bool {
+	valid := publicKey.Verify(message, solana.SignatureFromBytes(signature))
+	if valid {
+		log.Printf("Signature is valid for public key: %s\n", publicKey.String())
+	} else {
+		log.Printf("Signature is invalid for public key: %s\n", publicKey.String())
+	}
+	return valid
+}
+
 func (h *helper) RPCClient() *chainreader.RPCClientWrapper {
 	return &chainreader.RPCClientWrapper{Client: h.rpcClient}
+}
+
+func (h *helper) TXM() *txm.TxManager {
+	return &h.txm
+}
+
+func (h *helper) SolanaClient() *client.Client {
+	return h.sc
 }
 
 func (h *helper) Context(t *testing.T) context.Context {
@@ -292,7 +383,7 @@ func (h *helper) GetJSONEncodedIDL(t *testing.T) []byte {
 	return h.idlBts
 }
 
-func (h *helper) CreateAccount(t *testing.T, value uint64) solana.PublicKey {
+func (h *helper) CreateAccount(t *testing.T, it SolanaChainComponentsInterfaceTester[*testing.T], value uint64) solana.PublicKey {
 	t.Helper()
 
 	// avoid collisions in parallel tests
@@ -311,7 +402,7 @@ func (h *helper) CreateAccount(t *testing.T, value uint64) solana.PublicKey {
 	privateKey, err := solana.PrivateKeyFromBase58(solclient.DefaultPrivateKeysSolValidator[1])
 	require.NoError(t, err)
 
-	h.runInitialize(t, nonce, value, pubKey, func(key solana.PublicKey) *solana.PrivateKey {
+	h.runInitialize(t, it, nonce, value, pubKey, func(key solana.PublicKey) *solana.PrivateKey {
 		return &privateKey
 	}, privateKey.PublicKey())
 
@@ -320,6 +411,7 @@ func (h *helper) CreateAccount(t *testing.T, value uint64) solana.PublicKey {
 
 func (h *helper) runInitialize(
 	t *testing.T,
+	it SolanaChainComponentsInterfaceTester[*testing.T],
 	nonce uint64,
 	value uint64,
 	data solana.PublicKey,
@@ -328,10 +420,33 @@ func (h *helper) runInitialize(
 ) {
 	t.Helper()
 
-	inst, err := contract.NewInitializeInstruction(nonce*value, value, data, payer, solana.SystemProgramID).ValidateAndBuild()
+	cw := it.GetContractWriter(t)
+
+	args := map[string]interface{}{
+		"testIdx": nonce * value,
+		"value":   value,
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, nonce*value)
+
+	data, _, err := solana.FindProgramAddress(
+		[][]byte{
+			[]byte("data"), // Seed 1
+			buf,            // Seed 2 (test_idx)
+		},
+		solana.MustPublicKeyFromBase58(programPubKey), // The program ID
+	)
 	require.NoError(t, err)
 
-	h.sendInstruction(t, inst, signerFunc, payer)
+	fmt.Printf("Derived PDA in test: %s\n", data.String())
+
+	SubmitTransactionToCW(t, &it, cw, "initialize", args, types.BoundContract{Name: AnyContractName, Address: h.programID.String()}, types.Finalized)
+
+	// inst, err := contract.NewInitializeInstruction(nonce*value, value, data, payer, solana.SystemProgramID).ValidateAndBuild()
+	// require.NoError(t, err)
+
+	// h.sendInstruction(t, inst, signerFunc, payer)
 }
 
 func (h *helper) sendInstruction(

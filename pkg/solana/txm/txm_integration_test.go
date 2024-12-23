@@ -1,6 +1,6 @@
 //go:build integration
 
-package txm_test
+package txm
 
 import (
 	"bytes"

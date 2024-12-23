@@ -86,7 +86,7 @@ func RunChainComponentsInLoopSolanaTests[T TestingT[T]](t T, it ChainComponentsI
 }
 
 func RunContractReaderSolanaTests[T TestingT[T]](t T, it *SolanaChainComponentsInterfaceTester[T]) {
-	RunContractReaderInterfaceTests(t, it, false)
+	RunContractReaderInterfaceTests(t, it, false, false)
 
 	testCases := []Testcase[T]{}
 
@@ -94,7 +94,7 @@ func RunContractReaderSolanaTests[T TestingT[T]](t T, it *SolanaChainComponentsI
 }
 
 func RunContractReaderInLoopTests[T TestingT[T]](t T, it ChainComponentsInterfaceTester[T]) {
-	RunContractReaderInterfaceTests(t, it, false)
+	RunContractReaderInterfaceTests(t, it, false, false)
 
 	testCases := []Testcase[T]{}
 
@@ -132,7 +132,7 @@ func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
 						Procedure: config.ChainReaderProcedure{
 							IDLAccount: "DataAccount",
 							OutputModifications: codec.ModifiersConfig{
-								&codec.PropertyExtractorConfig{FieldName: "U64value"},
+								&codec.PropertyExtractorConfig{FieldName: "U64Value"},
 							},
 						},
 					},
@@ -142,7 +142,7 @@ func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
 						Procedure: config.ChainReaderProcedure{
 							IDLAccount: "DataAccount",
 							OutputModifications: codec.ModifiersConfig{
-								&codec.PropertyExtractorConfig{FieldName: "U64slice"},
+								&codec.PropertyExtractorConfig{FieldName: "U64Slice"},
 							},
 						},
 					},
@@ -156,7 +156,7 @@ func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
 						Procedure: config.ChainReaderProcedure{
 							IDLAccount: "DataAccount",
 							OutputModifications: codec.ModifiersConfig{
-								&codec.PropertyExtractorConfig{FieldName: "U64value"},
+								&codec.PropertyExtractorConfig{FieldName: "U64Value"},
 							},
 						},
 					},

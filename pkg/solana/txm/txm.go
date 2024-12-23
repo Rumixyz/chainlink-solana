@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
 	solanaGo "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/google/uuid"
@@ -445,7 +446,7 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				if status == nil {
 					// sig not found could mean invalid tx or not picked up yet, keep polling
 					// we also need to check if a potential re-org has occurred for this sig and handle it
-					txm.handleReorg(ctx, sig, status)
+					txm.handleReorg(ctx, client, sig, status)
 					txm.handleNotFoundSignatureStatus(sig)
 					continue
 				}
@@ -460,7 +461,7 @@ func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWr
 				case rpc.ConfirmationStatusProcessed:
 					// if signature is processed, keep polling for confirmed or finalized status
 					// we also need to check if a potential re-org has occurred for this sig and handle it
-					txm.handleReorg(ctx, sig, status)
+					txm.handleReorg(ctx, client, sig, status)
 					txm.handleProcessedSignatureStatus(sig)
 				case rpc.ConfirmationStatusConfirmed:
 					// if signature is confirmed, keep polling for finalized status
@@ -515,15 +516,15 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 
 // handleReorg detects and manages transaction state regressions (re-orgs) for a given signature.
 //
-// A re-org occurs when the blockchain state of a signature regresses to:
+// A re-org occurs when the on-chain state of a signature regresses:
 // - Confirmed -> Processed || Not Found
 // - Processed -> Not Found
 //
 // This function determines if the signature’s state regression impacts the overall transaction state and, if so, takes appropriate action:
-//   - For regressions from "Confirmed", our in memory layer is updated, the tx is rebroadcasted, and the retry/bumping cycle is restarted.
+//   - For regressions from "Confirmed", our in memory layer is updated and the tx is rebroadcasted with a new hash restarting the retry/bumping cycle.
 //   - For regressions from "Processed", the existing retry/bumping cycle is still running, so no immediate action is needed. We only update our in-memory state to Broadcasted.
 //     Future rebroadcasts, will be handled by the TxExpirationRebroadcast logic (if enabled) when the transaction expires.
-func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
+func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
 	// Retrieve the last known status of the transaction associated with this signature from the in-memory layer.
 	txInfo, err := txm.txs.GetSignatureInfo(sig)
 	if err != nil {
@@ -552,26 +553,40 @@ func (txm *Txm) handleReorg(ctx context.Context, sig solanaGo.Signature, status 
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
 		// update the in-memory state and return the transaction associated with the signature for rebroadcasting and restarting retry/bump cycle if needed
-		pTx, err := txm.txs.OnReorg(sig, txInfo.id)
+		err := txm.txs.OnReorg(sig, txInfo.id)
 		if err != nil {
-			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", pTx.id, "error", err)
+			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", txInfo.id, "error", err)
 			return
 		}
 
-		// For regressions from "Confirmed", rebroadcast tx and restart retry/bumping cycle.
+		// For regressions from "Confirmed, we'll need to rebroadcast the tx.
 		if regressionType == FromConfirmed {
-			retryCtx, cancel := context.WithTimeout(ctx, pTx.cfg.Timeout)
-			txm.done.Add(1)
-			go func() {
-				defer txm.done.Done()
-				txm.retryTx(retryCtx, cancel, pTx, pTx.tx, sig)
-				txm.lggr.Debugw("re-org retry completed", "id", pTx.id)
-			}()
+			pTx, err := txm.getPendingTx(txInfo.id)
+			if err != nil {
+				txm.lggr.Errorw("failed to get pending tx for rebroadcast", "id", txInfo.id, "error", err)
+				return
+			}
+
+			// Original block may be invalid. To be on the safe side, we'll use a new blockhash
+			blockhash, err := client.LatestBlockhash(ctx)
+			if err != nil {
+				txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
+				return
+			}
+			if blockhash == nil || blockhash.Value == nil {
+				txm.lggr.Errorw("nil pointer returned from getLatestBlockhash for rebroadcast")
+				return
+			}
+
+			newSig, err := txm.rebroadcastWithNewBlockhash(ctx, pTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
+			if err != nil {
+				return // logging handled inside the func
+			}
+
+			txm.lggr.Debugw("confirmed re-orged tx was rebroadcasted successfully", "id", pTx.id, "newSig", newSig)
 		}
-		// For regressions from "Processed" do not restart the cycle immediately.
-		// The retry/bumping cycle for the original transaction is still active.
-		// If rebroadcasting becomes necessary later, it will be handled via the
-		// TxExpirationRebroadcast logic (if enabled) when the transaction expires.
+		// For regressions from "Processed" do nothing now. The retry/bumping cycle for the original tx is still active.
+		// If rebroadcasting with new blockhash becomes necessary later, it will be handled via TxExpirationRebroadcast when expired (if enabled)
 	}
 }
 
@@ -645,33 +660,15 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 		return
 	}
 
-	// rebroadcast each expired tx after updating blockhash, lastValidBlockHeight and compute unit price (priority fee)
-	for _, tx := range expiredBroadcastedTxes {
-		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", tx.id, "signature", tx.signatures, "lastValidBlockHeight", tx.lastValidBlockHeight, "currentBlockHeight", blockHeight)
-		// Removes all signatures associated to prior tx and cancels context.
-		_, err := txm.txs.Remove(tx.id)
+	// rebroadcast each expired tx
+	for _, expiredTx := range expiredBroadcastedTxes {
+		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", expiredTx.id, "signature", expiredTx.signatures, "lastValidBlockHeight", expiredTx.lastValidBlockHeight, "currentBlockHeight", blockHeight)
+		newSig, err := txm.rebroadcastWithNewBlockhash(ctx, expiredTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
 		if err != nil {
-			txm.lggr.Errorw("failed to remove expired transaction", "id", tx.id, "error", err)
-			continue
+			continue // logging handled inside the func
 		}
 
-		tx.tx.Message.RecentBlockhash = blockhash.Value.Blockhash
-		tx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice()
-		rebroadcastTx := pendingTx{
-			tx:                   tx.tx,
-			cfg:                  tx.cfg,
-			id:                   tx.id, // using same id in case it was set by caller and we need to maintain it.
-			lastValidBlockHeight: blockhash.Value.LastValidBlockHeight,
-		}
-		// call sendWithRetry directly to avoid enqueuing
-		_, _, _, sendErr := txm.sendWithRetry(ctx, rebroadcastTx)
-		if sendErr != nil {
-			stateTransitionErr := txm.txs.OnPrebroadcastError(tx.id, txm.cfg.TxRetentionTimeout(), Errored, TxFailReject)
-			txm.lggr.Errorw("failed to rebroadcast transaction", "id", tx.id, "error", errors.Join(sendErr, stateTransitionErr))
-			continue
-		}
-
-		txm.lggr.Debugw("rebroadcast transaction sent", "id", tx.id)
+		txm.lggr.Debugw("expired tx was rebroadcasted successfully", "id", expiredTx.id, "newSig", newSig)
 	}
 }
 
@@ -995,6 +992,36 @@ func (txm *Txm) InflightTxs() int {
 	return len(txm.txs.ListAllSigs())
 }
 
+// rebroadcastWithNewBlockhash attempts to rebroadcast a pending tx with a new blockhash.
+// It removes all signatures associated with the prior tx, cancels the context.
+// It also updates the compute unit price and assigns a new blockhash for rebroadcasting.
+// Calls sendWithRetry directly to avoid enqueuing the transaction.
+// If the rebroadcast fails, it logs the error. If successful, it returns the new signature.
+func (txm *Txm) rebroadcastWithNewBlockhash(ctx context.Context, pTx pendingTx, blockhash solana.Hash, lastValidBlockHeight uint64) (solana.Signature, error) {
+	// Removes all signatures associated to prior tx and cancels context.
+	_, err := txm.txs.Remove(pTx.id)
+	if err != nil {
+		txm.lggr.Errorw("failed to remove tx", "id", pTx.id, "error", err)
+		return solana.Signature{}, err
+	}
+
+	// Update the pendingTx
+	pTx.tx.Message.RecentBlockhash = blockhash
+	pTx.cfg.BaseComputeUnitPrice = txm.fee.BaseComputeUnitPrice()
+	pTx.lastValidBlockHeight = lastValidBlockHeight
+
+	// call sendWithRetry directly to avoid enqueuing
+	_, _, newSig, sendErr := txm.sendWithRetry(ctx, pTx)
+	if sendErr != nil {
+		stateTransitionErr := txm.txs.OnPrebroadcastError(pTx.id, txm.cfg.TxRetentionTimeout(), Errored, TxFailReject)
+		combinedErr := errors.Join(sendErr, stateTransitionErr)
+		txm.lggr.Errorw("failed to rebroadcast tx with new blockhash", "id", pTx.id, "error", combinedErr)
+		return solana.Signature{}, combinedErr
+	}
+
+	return newSig, nil
+}
+
 // Close close service
 func (txm *Txm) Close() error {
 	return txm.StopOnce("Txm", func() error {
@@ -1017,4 +1044,8 @@ func (txm *Txm) defaultTxConfig() TxConfig {
 		ComputeUnitLimit:         txm.cfg.ComputeUnitLimitDefault(),
 		EstimateComputeUnitLimit: txm.cfg.EstimateComputeUnitLimit(),
 	}
+}
+
+func (txm *Txm) getPendingTx(txID string) (pendingTx, error) {
+	return txm.txs.GetPendingTx(txID)
 }

@@ -57,7 +57,9 @@ type PendingTxContext interface {
 	// If the highest aggregated state is less than the current state, a reorg has occurred and we need to handle it.
 	TxHasReorg(id string) bool
 	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx for retrying.
-	OnReorg(sig solana.Signature, id string) (pendingTx, error)
+	OnReorg(sig solana.Signature, id string) error
+	// GetPendingTx returns the pendingTx for the given ID if it exists
+	GetPendingTx(id string) (pendingTx, error)
 }
 
 // finishedTx is used to store info required to track transactions to finality or error
@@ -588,7 +590,7 @@ func (c *pendingTxContext) GetSignatureInfo(sig solana.Signature) (txInfo, error
 	return info, nil
 }
 
-func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, error) {
+func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) error {
 	err := c.withReadLock(func() error {
 		// Check if the transaction is still in a non finalized/errored state
 		var broadcastedExists, confirmedExists bool
@@ -601,7 +603,7 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, 
 	})
 	if err != nil {
 		// If transaction or sig are not found, return
-		return pendingTx{}, err
+		return err
 	}
 
 	var pTx pendingTx
@@ -638,11 +640,10 @@ func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) (pendingTx, 
 	})
 	if err != nil {
 		// If transaction was not found
-		return pendingTx{}, err
+		return err
 	}
 
-	// Returns the transaction in case we need to rebroadcast and restart the retry/bumping cycle
-	return pTx, nil
+	return nil
 }
 
 // TxHasReorg determines whether a reorg has occurred for a given tx.
@@ -714,6 +715,24 @@ func (c *pendingTxContext) UpdateSignatureStatus(sig solana.Signature, status Tx
 	}
 
 	return nil
+}
+
+func (c *pendingTxContext) GetPendingTx(id string) (pendingTx, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	var tx, tempTx pendingTx
+	var broadcastedExists, confirmedExists bool
+	if tempTx, broadcastedExists = c.broadcastedProcessedTxs[id]; broadcastedExists {
+		tx = tempTx
+	}
+	if tempTx, confirmedExists = c.confirmedTxs[id]; confirmedExists {
+		tx = tempTx
+	}
+
+	if !broadcastedExists && !confirmedExists {
+		return pendingTx{}, ErrTransactionNotFound
+	}
+	return tx, nil
 }
 
 func (c *pendingTxContext) withReadLock(fn func() error) error {
@@ -847,7 +866,7 @@ func (c *pendingTxContextWithProm) GetSignatureInfo(sig solana.Signature) (txInf
 	return c.pendingTx.GetSignatureInfo(sig)
 }
 
-func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature, id string) (pendingTx, error) {
+func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature, id string) error {
 	return c.pendingTx.OnReorg(sig, id)
 }
 
@@ -857,4 +876,8 @@ func (c *pendingTxContextWithProm) TxHasReorg(id string) bool {
 
 func (c *pendingTxContextWithProm) UpdateSignatureStatus(sig solana.Signature, status TxState) error {
 	return c.pendingTx.UpdateSignatureStatus(sig, status)
+}
+
+func (c *pendingTxContextWithProm) GetPendingTx(id string) (pendingTx, error) {
+	return c.pendingTx.GetPendingTx(id)
 }

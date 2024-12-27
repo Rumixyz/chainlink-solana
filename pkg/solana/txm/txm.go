@@ -253,23 +253,9 @@ func (txm *Txm) buildTx(ctx context.Context, msg pendingTx, retryCount int) (sol
 	if err != nil {
 		return solanaGo.Transaction{}, fmt.Errorf("error in Sign: %w", err)
 	}
-	fmt.Printf("Transaction Message (hex): %x\n", txMsg)
-
 	var finalSig [64]byte
 	copy(finalSig[:], sigBytes)
 	newTx.Signatures = append(newTx.Signatures, finalSig)
-
-	for i, sig := range newTx.Signatures {
-		fmt.Printf("Signature[%d]: %x\n", i, sig)
-	}
-
-	for i, account := range newTx.Message.AccountKeys {
-		writable, err := newTx.Message.IsWritable(account)
-		if err != nil {
-			return solanaGo.Transaction{}, fmt.Errorf("error in IsWritable: %w", err)
-		}
-		fmt.Printf("Account[%d]: %s (Signer: %v, Writable: %v)\n", i, account, newTx.Message.IsSigner(account), writable)
-	}
 
 	return newTx, nil
 }

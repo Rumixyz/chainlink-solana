@@ -7,9 +7,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,11 +16,11 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
-	"github.com/gagliardetto/solana-go/text"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/test-go/testify/mock"
 
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
+	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	commontestutils "github.com/smartcontractkit/chainlink-common/pkg/loop/testutils"
 	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
@@ -207,7 +204,7 @@ func (it *SolanaChainComponentsInterfaceTester[T]) Setup(t T) {
 									{Static: []byte("data")},
 									{Dynamic: chainwriter.AccountLookup{
 										Name:     "TestIDX",
-										Location: "testIdx",
+										Location: "TestIdx",
 									}},
 								},
 								IsWritable: true,
@@ -304,6 +301,7 @@ func (h *helper) Init(t *testing.T) {
 	solanautils.FundAccounts(t, []solana.PrivateKey{privateKey}, h.rpcClient)
 
 	cfg := config.NewDefault()
+	cfg.Chain.TxRetentionTimeout = commonconfig.MustNewDuration(10 * time.Minute)
 	solanaClient, err := client.NewClient(h.rpcURL, cfg, 5*time.Second, nil)
 	require.NoError(t, err)
 
@@ -313,14 +311,14 @@ func (h *helper) Init(t *testing.T) {
 	mkey := keyMocks.NewSimpleKeystore(t)
 	mkey.On("Sign", mock.Anything, privateKey.PublicKey().String(), mock.Anything).Return(func(_ context.Context, _ string, data []byte) []byte {
 		sig, _ := privateKey.Sign(data)
-		verifySignature(privateKey.PublicKey(), sig[:], data)
-		fmt.Printf("Signed for %s: %x\n", privateKey.PublicKey().String(), sig)
 		return sig[:]
 	}, nil)
 	lggr := logger.Test(t)
 
 	txm := txm.NewTxm("localnet", loader, nil, cfg, mkey, lggr)
-	txm.Start(tests.Context(t))
+	err = txm.Start(tests.Context(t))
+	require.NoError(t, err)
+
 	h.txm = txm
 
 	pubkey, err := solana.PublicKeyFromBase58(programPubKey)
@@ -328,16 +326,6 @@ func (h *helper) Init(t *testing.T) {
 
 	contract.SetProgramID(pubkey)
 	h.programID = pubkey
-}
-
-func verifySignature(publicKey solana.PublicKey, signature []byte, message []byte) bool {
-	valid := publicKey.Verify(message, solana.SignatureFromBytes(signature))
-	if valid {
-		log.Printf("Signature is valid for public key: %s\n", publicKey.String())
-	} else {
-		log.Printf("Signature is invalid for public key: %s\n", publicKey.String())
-	}
-	return valid
 }
 
 func (h *helper) RPCClient() *chainreader.RPCClientWrapper {
@@ -398,15 +386,14 @@ func (h *helper) CreateAccount(t *testing.T, it SolanaChainComponentsInterfaceTe
 	pubKey, _, err := solana.FindProgramAddress([][]byte{[]byte("data"), bts}, h.programID)
 	require.NoError(t, err)
 
-	// Getting the default localnet private key
-	privateKey, err := solana.PrivateKeyFromBase58(solclient.DefaultPrivateKeysSolValidator[1])
-	require.NoError(t, err)
-
-	h.runInitialize(t, it, nonce, value, pubKey, func(key solana.PublicKey) *solana.PrivateKey {
-		return &privateKey
-	}, privateKey.PublicKey())
+	h.runInitialize(t, it, nonce, value)
 
 	return pubKey
+}
+
+type InitializeArgs struct {
+	TestIdx uint64
+	Value   uint64
 }
 
 func (h *helper) runInitialize(
@@ -414,98 +401,20 @@ func (h *helper) runInitialize(
 	it SolanaChainComponentsInterfaceTester[*testing.T],
 	nonce uint64,
 	value uint64,
-	data solana.PublicKey,
-	signerFunc func(key solana.PublicKey) *solana.PrivateKey,
-	payer solana.PublicKey,
 ) {
 	t.Helper()
 
 	cw := it.GetContractWriter(t)
 
-	args := map[string]interface{}{
-		"testIdx": nonce * value,
-		"value":   value,
+	args := InitializeArgs{
+		TestIdx: nonce * value,
+		Value:   value,
 	}
 
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, nonce*value)
 
-	data, _, err := solana.FindProgramAddress(
-		[][]byte{
-			[]byte("data"), // Seed 1
-			buf,            // Seed 2 (test_idx)
-		},
-		solana.MustPublicKeyFromBase58(programPubKey), // The program ID
-	)
-	require.NoError(t, err)
-
-	fmt.Printf("Derived PDA in test: %s\n", data.String())
-
 	SubmitTransactionToCW(t, &it, cw, "initialize", args, types.BoundContract{Name: AnyContractName, Address: h.programID.String()}, types.Finalized)
-
-	// inst, err := contract.NewInitializeInstruction(nonce*value, value, data, payer, solana.SystemProgramID).ValidateAndBuild()
-	// require.NoError(t, err)
-
-	// h.sendInstruction(t, inst, signerFunc, payer)
-}
-
-func (h *helper) sendInstruction(
-	t *testing.T,
-	inst *contract.Instruction,
-	signerFunc func(key solana.PublicKey) *solana.PrivateKey,
-	payer solana.PublicKey,
-) {
-	t.Helper()
-
-	ctx := tests.Context(t)
-
-	recent, err := h.rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
-	require.NoError(t, err)
-
-	tx, err := solana.NewTransaction(
-		[]solana.Instruction{
-			inst,
-		},
-		recent.Value.Blockhash,
-		solana.TransactionPayer(payer),
-	)
-	require.NoError(t, err)
-
-	_, err = tx.EncodeTree(text.NewTreeEncoder(io.Discard, "Initialize"))
-	require.NoError(t, err)
-
-	_, err = tx.Sign(signerFunc)
-	require.NoError(t, err)
-
-	sig, err := h.rpcClient.SendTransactionWithOpts(
-		ctx, tx,
-		rpc.TransactionOpts{
-			PreflightCommitment: rpc.CommitmentConfirmed,
-		},
-	)
-	require.NoError(t, err)
-
-	h.waitForTX(t, sig, rpc.CommitmentFinalized)
-}
-
-func (h *helper) waitForTX(t *testing.T, sig solana.Signature, commitment rpc.CommitmentType) {
-	t.Helper()
-
-	sub, err := h.wsClient.SignatureSubscribe(
-		sig,
-		commitment,
-	)
-	require.NoError(t, err)
-
-	defer sub.Unsubscribe()
-
-	res, err := sub.Recv()
-	require.NoError(t, err)
-
-	if res.Value.Err != nil {
-		t.Logf("transaction confirmation failed: %v", res.Value.Err)
-		t.FailNow()
-	}
 }
 
 func mustUnmarshalIDL[T TestingT[T]](t T, rawIDL string) codec.IDL {

@@ -35,6 +35,9 @@ pub mod contract_reader_interface {
 #[derive(Accounts)]
 #[instruction(test_idx: u64)]
 pub struct Initialize<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
     // derived test PDA
     #[account(
         init,
@@ -43,9 +46,6 @@ pub struct Initialize<'info> {
         seeds=[b"data".as_ref(), test_idx.to_le_bytes().as_ref()],
         bump)]
     pub data: Account<'info, DataAccount>,
-
-    #[account(mut)]
-    pub signer: Signer<'info>,
 
     pub system_program: Program<'info, System>,
 }

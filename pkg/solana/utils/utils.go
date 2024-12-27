@@ -31,15 +31,6 @@ var (
 	PathToAnchorConfig = filepath.Join(ProjectRoot, "contracts", "Anchor.toml")
 )
 
-var (
-	_, b, _, _ = runtime.Caller(0)
-	// ProjectRoot Root folder of this project
-	ProjectRoot = filepath.Join(filepath.Dir(b), "/../../..")
-	// ContractsDir path to our contracts
-	ContractsDir       = filepath.Join(ProjectRoot, "contracts", "target", "deploy")
-	PathToAnchorConfig = filepath.Join(ProjectRoot, "contracts", "Anchor.toml")
-)
-
 func LamportsToSol(lamports uint64) float64 { return internal.LamportsToSol(lamports) }
 
 // TxModifier is a dynamic function used to flexibly add components to a transaction such as additional signers, and compute budget parameters

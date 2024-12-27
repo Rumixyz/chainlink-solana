@@ -3,7 +3,6 @@ package chainwriter_test
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"math/big"
 	"os"
 	"reflect"
@@ -409,7 +408,6 @@ func TestChainWriter_SubmitTransaction(t *testing.T) {
 	seed2 := []byte("seed2")
 	programID := solana.MustPublicKeyFromBase58("6AfuXF6HapDUhQfE4nQG9C1SGtA1YjP3icaJyRfU4RyE")
 	derivedTablePda := mustFindPdaProgramAddress(t, [][]byte{seed2}, programID)
-	fmt.Println("pda:", derivedTablePda)
 	// mock data account response from program
 	derivedLookupTablePubkey := mockDataAccountLookupTable(t, rw, derivedTablePda)
 	// mock fetch lookup table addresses call

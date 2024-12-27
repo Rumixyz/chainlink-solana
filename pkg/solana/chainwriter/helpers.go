@@ -81,25 +81,6 @@ func errorWithDebugID(err error, debugID string) error {
 	return fmt.Errorf("Debug ID: %s: Error: %s", debugID, err)
 }
 
-func GetDebugIDAtLocation(args any, location string) (string, error) {
-	debugIDList, err := GetValueAtLocation(args, location)
-	if err != nil {
-		return "", err
-	}
-
-	// there should only be one debug ID, others will be ignored.
-	debugID := string(debugIDList[0])
-
-	return debugID, nil
-}
-
-func errorWithDebugID(err error, debugID string) error {
-	if debugID == "" {
-		return err
-	}
-	return fmt.Errorf("Debug ID: %s: Error: %s", debugID, err)
-}
-
 // traversePath recursively traverses the given structure based on the provided path.
 func traversePath(data any, path []string) ([]any, error) {
 	if len(path) == 0 {

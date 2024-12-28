@@ -50,13 +50,13 @@ func prefixBuilder(depth int) string {
 	return strings.Repeat(">", depth)
 }
 
-func parseProgramLogs(logs []string) []ProgramOutput {
+func ParseProgramLogs(logs []string) []ProgramOutput {
 	var depth int
 
 	instLogs := []ProgramOutput{}
 	lastLogIdx := -1
 
-	for _, log := range logs {
+	for i, log := range logs {
 		if strings.HasPrefix(log, "Program log:") {
 			logDataMatches := logMatcher.FindStringSubmatch(log)
 
@@ -80,6 +80,9 @@ func parseProgramLogs(logs []string) []ProgramOutput {
 				instLogs[lastLogIdx].Events = append(instLogs[lastLogIdx].Events, ProgramEvent{
 					Prefix: prefixBuilder(depth),
 					Data:   dataMatches[1],
+					BlockData: BlockData{
+						TransactionLogIndex: uint(i), //nolint:gosec // disable G115
+					},
 				})
 			}
 		} else if strings.HasPrefix(log, "Log truncated") {

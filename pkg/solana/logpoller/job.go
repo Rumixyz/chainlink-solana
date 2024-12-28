@@ -138,7 +138,7 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 
 func messagesToEvents(messages []string, parser ProgramEventProcessor, detail eventDetail, chJobs chan Job) {
 	var logIdx uint
-	for _, outputs := range parseProgramLogs(messages) {
+	for _, outputs := range ParseProgramLogs(messages) {
 		for _, event := range outputs.Events {
 			event.SlotNumber = detail.slotNumber
 			event.BlockHeight = detail.blockHeight

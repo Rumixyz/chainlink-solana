@@ -204,3 +204,13 @@ func (o *DSORM) SelectLogs(ctx context.Context, start, end int64, address Public
 	}
 	return logs, nil
 }
+
+func (o *DSORM) SelectSeqNums(ctx context.Context) (map[int64]int64, error) {
+	seqNums := make(map[int64]int64)
+	query := "SELECT id, MAX(sequence_num) FROM solana.logs WHERE chain_id=%s GROUP BY id"
+	err := o.ds.SelectContext(ctx, &seqNums, query, o.chainID)
+	if err != nil {
+		return nil, err
+	}
+	return seqNums, nil
+}

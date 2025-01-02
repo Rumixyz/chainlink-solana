@@ -1467,7 +1467,7 @@ func TestPendingTxContext_OnReorg(t *testing.T) {
 		require.NoError(t, err)
 
 		// Call OnReorg
-		require.NoError(t, txs.OnReorg(sig, txID))
+		require.NoError(t, txs.OnReorg(txID))
 		pTx, err := txs.GetPendingTx(txID)
 		require.NoError(t, err)
 		require.Equal(t, Broadcasted, pTx.state)
@@ -1487,7 +1487,7 @@ func TestPendingTxContext_OnReorg(t *testing.T) {
 		require.NoError(t, err)
 
 		// Call OnReorg
-		require.NoError(t, txs.OnReorg(sig, txID))
+		require.NoError(t, txs.OnReorg(txID))
 		pTx, err := txs.GetPendingTx(txID)
 		require.NoError(t, err)
 		require.Equal(t, Broadcasted, pTx.state)
@@ -1513,7 +1513,7 @@ func TestPendingTxContext_OnReorg(t *testing.T) {
 		require.NoError(t, err)
 
 		// Call OnReorg
-		err = txs.OnReorg(sig, txID)
+		err = txs.OnReorg(txID)
 		require.Error(t, err)
 		require.Equal(t, ErrTransactionNotFound, err)
 	})
@@ -1525,13 +1525,13 @@ func TestPendingTxContext_OnReorg(t *testing.T) {
 		require.NoError(t, err)
 
 		// Call OnReorg
-		err = txs.OnReorg(sig, txID)
+		err = txs.OnReorg(txID)
 		require.Error(t, err)
 		require.Equal(t, ErrTransactionNotFound, err)
 	})
 
 	t.Run("fail to reset non-existent transaction", func(t *testing.T) {
-		err := txs.OnReorg(randomSignature(t), "non-existent")
+		err := txs.OnReorg("non-existent")
 		require.Error(t, err)
 		require.Equal(t, ErrTransactionNotFound, err)
 	})

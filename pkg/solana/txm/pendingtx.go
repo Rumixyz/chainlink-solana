@@ -56,8 +56,8 @@ type PendingTxContext interface {
 	// It achieves this by comparing the highest aggregated state across all associated signatures with the current state of the transaction.
 	// If the highest aggregated state is less than the current state, a reorg has occurred and we need to handle it.
 	TxHasReorg(id string) bool
-	// OnReorg resets the transaction state to Broadcasted for the given signature and returns the pendingTx for retrying.
-	OnReorg(sig solana.Signature, id string) error
+	// OnReorg resets state to Broadcasted for given transaction ID
+	OnReorg(id string) error
 	// GetPendingTx returns the pendingTx for the given ID if it exists
 	GetPendingTx(id string) (pendingTx, error)
 }
@@ -590,7 +590,7 @@ func (c *pendingTxContext) GetSignatureInfo(sig solana.Signature) (txInfo, error
 	return info, nil
 }
 
-func (c *pendingTxContext) OnReorg(sig solana.Signature, id string) error {
+func (c *pendingTxContext) OnReorg(id string) error {
 	err := c.withReadLock(func() error {
 		// Check if the transaction is still in a non finalized/errored state
 		var broadcastedExists, confirmedExists bool
@@ -866,8 +866,8 @@ func (c *pendingTxContextWithProm) GetSignatureInfo(sig solana.Signature) (txInf
 	return c.pendingTx.GetSignatureInfo(sig)
 }
 
-func (c *pendingTxContextWithProm) OnReorg(sig solana.Signature, id string) error {
-	return c.pendingTx.OnReorg(sig, id)
+func (c *pendingTxContextWithProm) OnReorg(id string) error {
+	return c.pendingTx.OnReorg(id)
 }
 
 func (c *pendingTxContextWithProm) TxHasReorg(id string) bool {

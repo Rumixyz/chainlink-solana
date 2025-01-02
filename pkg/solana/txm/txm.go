@@ -412,7 +412,7 @@ func (txm *Txm) confirm() {
 
 // processConfirmations checks the status of transaction signatures on-chain and updates our in-memory state accordingly.
 // It splits the signatures into batches, retrieves their statuses with an RPC call, and processes each status accordingly.
-// The function handles transitions, managing expiration, errors, and transitions between different states like broadcasted, processed, confirmed, and finalized.
+// The function manages expirations, errors, and transitions between different states like broadcasted, processed, confirmed, and finalized.
 // It also determines when to end polling based on the status of each signature cancelling the exponential retry.
 func (txm *Txm) processConfirmations(ctx context.Context, client client.ReaderWriter) {
 	sigsBatch, err := utils.BatchSplit(txm.txs.ListAllSigs(), MaxSigsToConfirm)
@@ -552,8 +552,8 @@ func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig
 		}
 
 		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
-		// update the in-memory state and return the transaction associated with the signature for rebroadcasting and restarting retry/bump cycle if needed
-		err := txm.txs.OnReorg(sig, txInfo.id)
+		// reset tx state to broadcasted in our in memory map
+		err := txm.txs.OnReorg(txInfo.id)
 		if err != nil {
 			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", txInfo.id, "error", err)
 			return
@@ -567,7 +567,7 @@ func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig
 				return
 			}
 
-			// Original block may be invalid. To be on the safe side, we'll use a new blockhash
+			// To be on the safe side, we'll use a new blockhash instead of just retrying. Original block may be invalid at this point.
 			blockhash, err := client.LatestBlockhash(ctx)
 			if err != nil {
 				txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
@@ -578,7 +578,7 @@ func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig
 				return
 			}
 
-			newSig, err := txm.rebroadcastWithNewBlockhash(ctx, pTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
+			newSig, err := txm.rebroadcastWithGivenBlockhash(ctx, pTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
 			if err != nil {
 				return // logging handled inside the func
 			}
@@ -663,7 +663,7 @@ func (txm *Txm) rebroadcastExpiredTxs(ctx context.Context, client client.ReaderW
 	// rebroadcast each expired tx
 	for _, expiredTx := range expiredBroadcastedTxes {
 		txm.lggr.Debugw("transaction expired, rebroadcasting", "id", expiredTx.id, "signature", expiredTx.signatures, "lastValidBlockHeight", expiredTx.lastValidBlockHeight, "currentBlockHeight", blockHeight)
-		newSig, err := txm.rebroadcastWithNewBlockhash(ctx, expiredTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
+		newSig, err := txm.rebroadcastWithGivenBlockhash(ctx, expiredTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
 		if err != nil {
 			continue // logging handled inside the func
 		}
@@ -992,12 +992,10 @@ func (txm *Txm) InflightTxs() int {
 	return len(txm.txs.ListAllSigs())
 }
 
-// rebroadcastWithNewBlockhash attempts to rebroadcast a pending tx with a new blockhash.
-// It removes all signatures associated with the prior tx, cancels the context.
-// It also updates the compute unit price and assigns a new blockhash for rebroadcasting.
-// Calls sendWithRetry directly to avoid enqueuing the transaction.
-// If the rebroadcast fails, it logs the error. If successful, it returns the new signature.
-func (txm *Txm) rebroadcastWithNewBlockhash(ctx context.Context, pTx pendingTx, blockhash solana.Hash, lastValidBlockHeight uint64) (solana.Signature, error) {
+// rebroadcastWithGivenBlockhash attempts to rebroadcast a pending tx with a new blockhash.
+// Removes all signatures associated with the prior tx, cancels prior ctx, updates compute unit price and sets given blockhash for rebroadcasting.
+// Calls sendWithRetry directly to avoid enqueuing the transaction. It logs the error when rebroadcast fails and returns the new signature when successful.
+func (txm *Txm) rebroadcastWithGivenBlockhash(ctx context.Context, pTx pendingTx, blockhash solana.Hash, lastValidBlockHeight uint64) (solana.Signature, error) {
 	// Removes all signatures associated to prior tx and cancels context.
 	_, err := txm.txs.Remove(pTx.id)
 	if err != nil {

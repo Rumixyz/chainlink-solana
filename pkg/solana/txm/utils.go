@@ -58,26 +58,6 @@ const (
 	FromProcessed
 )
 
-// isStatusRegression checks if the current status is a regression compared to the previous status:
-// - Confirmed -> Processed, Broadcasted, Not Found: should not regress
-// - Processed -> Broadcasted, Not Found: should not regress
-// Returns true if a regression is detected, indicating a possible re-org.
-func isStatusRegression(previous, current TxState) (regressionType, bool) {
-	switch previous {
-	case Confirmed:
-		if current == Processed || current == Broadcasted || current == NotFound {
-			return FromConfirmed, true
-		}
-	case Processed:
-		if current == Broadcasted || current == NotFound {
-			return FromProcessed, true
-		}
-	default:
-		return 0, false
-	}
-	return 0, false
-}
-
 type statuses struct {
 	sigs []solana.Signature
 	res  []*rpc.SignatureStatusesResult

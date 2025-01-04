@@ -226,7 +226,7 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		require.Equal(t, amount, finalReceiverBalance, "Receiver should receive the transferred amount")
 	})
 
-	t.Run("confirmed reorg: previous tx is replaced and new one is finalized", func(t *testing.T) {
+	t.Run("initial tx regresses from confirmed state => re-org tx gets rebroadcasted and finalized", func(t *testing.T) {
 		// Start live validator and setup test environment
 		t.Parallel()
 		ledgerDir := t.TempDir()
@@ -280,8 +280,8 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		require.NotEqual(t, types.Finalized, status, "tx should not be finalized after reorg")
 		reorgLogs := obs.FilterMessageSnippet("re-org detected for transaction").Len()
 		require.Equal(t, reorgLogs, 1, "Re-org should be detected")
-		rebroadcastReorgLogs := obs.FilterMessageSnippet("confirmed re-orged tx was rebroadcasted successfully").Len()
-		require.Equal(t, rebroadcastReorgLogs, 1, "re-org tx should be rebroadcasted with new blockhash")
+		rebroadcastReorgLogs := obs.FilterMessageSnippet("re-orged tx was rebroadcasted successfully").Len()
+		require.Equal(t, rebroadcastReorgLogs, 1, "re-org tx should be rebroadcasted successfully")
 
 		// Wait rebroadcasted tx to be finalized and check final balances
 		require.Eventually(t, func() bool {

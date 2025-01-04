@@ -520,74 +520,41 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 // - Confirmed -> Processed || Not Found
 // - Processed -> Not Found
 //
-// This function determines if the signature’s state regression impacts the overall transaction state and, if so, takes appropriate action:
-//   - For regressions from "Confirmed", our in memory layer is updated and the tx is rebroadcasted with a new hash restarting the retry/bumping cycle.
-//   - For regressions from "Processed", the existing retry/bumping cycle is still running, so no immediate action is needed. We only update our in-memory state to Broadcasted.
-//     Future rebroadcasts, will be handled by the TxExpirationRebroadcast logic (if enabled) when the transaction expires.
+// When a re-org is detected, the transaction will be rebroadcasted with a new blockhash.
 func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
-	// Retrieve the last known status of the transaction associated with this signature from the in-memory layer.
-	txInfo, err := txm.txs.GetSignatureInfo(sig)
-	if err != nil {
-		txm.lggr.Errorw("failed to get signature info when checking for potential re-orgs", "signature", sig, "error", err)
+	// Determine if the re-org of the signature impacts the overall transaction state.
+	sigState := convertStatus(status)
+	txID, hasReorg := txm.txs.TxHasReorg(sig, sigState)
+	if !hasReorg {
 		return
 	}
 
-	// Check if the sig status has regressed to indicate a re-org.
-	// A regression is identified when the state transitions as follows:
-	// - Confirmed -> Processed || Broadcasted || Not Found
-	// - Processed -> Broadcasted || Not Found
-	currentTxState := convertStatus(status)
-	if regressionType, isRegressed := isStatusRegression(txInfo.state, currentTxState); isRegressed {
-		if err := txm.txs.UpdateSignatureStatus(sig, currentTxState); err != nil {
-			txm.lggr.Errorw("failed to update sig status", "signature", sig, "error", err)
-			return
-		}
-
-		// Determine if the sig regression affects the transaction state.
-		// If the tx isn't considered re-orged, skip further processing.
-		// Multiple signatures may be in-flight for a single transaction, so a re-org
-		// for one signature doesn't necessarily mean the transaction state has regressed.
-		if !txm.txs.TxHasReorg(txInfo.id) {
-			return
-		}
-
-		txm.lggr.Warnw("re-org detected for transaction", "txID", txInfo.id, "signature", sig, "previousStatus", txInfo.state, "currentStatus", currentTxState)
-		// reset tx state to broadcasted in our in memory map
-		err := txm.txs.OnReorg(txInfo.id)
-		if err != nil {
-			txm.lggr.Errorw("failed to handle re-org", "signature", sig, "id", txInfo.id, "error", err)
-			return
-		}
-
-		// For regressions from "Confirmed, we'll need to rebroadcast the tx.
-		if regressionType == FromConfirmed {
-			pTx, err := txm.getPendingTx(txInfo.id)
-			if err != nil {
-				txm.lggr.Errorw("failed to get pending tx for rebroadcast", "id", txInfo.id, "error", err)
-				return
-			}
-
-			// To be on the safe side, we'll use a new blockhash instead of just retrying. Original block may be invalid at this point.
-			blockhash, err := client.LatestBlockhash(ctx)
-			if err != nil {
-				txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
-				return
-			}
-			if blockhash == nil || blockhash.Value == nil {
-				txm.lggr.Errorw("nil pointer returned from getLatestBlockhash for rebroadcast")
-				return
-			}
-
-			newSig, err := txm.rebroadcastWithGivenBlockhash(ctx, pTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
-			if err != nil {
-				return // logging handled inside the func
-			}
-
-			txm.lggr.Debugw("confirmed re-orged tx was rebroadcasted successfully", "id", pTx.id, "newSig", newSig)
-		}
-		// For regressions from "Processed" do nothing now. The retry/bumping cycle for the original tx is still active.
-		// If rebroadcasting with new blockhash becomes necessary later, it will be handled via TxExpirationRebroadcast when expired (if enabled)
+	// At this point, we have detected a re-org. We need to rebroadcast the tx.
+	txm.lggr.Debugw("re-org detected for transaction", "txID", txID, "signature", sig)
+	pTx, err := txm.getPendingTx(txID)
+	if err != nil {
+		txm.lggr.Errorw("failed to get pending tx for rebroadcast", "txID", txID, "error", err)
+		return
 	}
+
+	// The previous blockhash is invalid. We need to request a new one and rebroadcast the tx with it.
+	blockhash, err := client.LatestBlockhash(ctx)
+	if err != nil {
+		txm.lggr.Errorw("failed to getLatestBlockhash for rebroadcast", "error", err)
+		return
+	}
+	if blockhash == nil || blockhash.Value == nil {
+		txm.lggr.Errorw("nil pointer returned from getLatestBlockhash for rebroadcast")
+		return
+	}
+
+	// Rebroadcasts tx with new blockhash after removing prior tx and signatures associated with it, cancelling prior ctx and updating compute unit price.
+	newSig, err := txm.rebroadcastWithGivenBlockhash(ctx, pTx, blockhash.Value.Blockhash, blockhash.Value.LastValidBlockHeight)
+	if err != nil {
+		return // logging handled inside the func
+	}
+
+	txm.lggr.Debugw("re-orged tx was rebroadcasted successfully", "id", pTx.id, "newSig", newSig)
 }
 
 // handleProcessedSignatureStatus handles the case where a transaction signature is in the "processed" state on-chain.

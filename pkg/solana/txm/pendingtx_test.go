@@ -1384,7 +1384,6 @@ func TestPendingTxContext_ListAllExpiredBroadcastedTxs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize a new PendingTxContext
 			ctx := newPendingTxContext()
@@ -1407,48 +1406,6 @@ func TestPendingTxContext_ListAllExpiredBroadcastedTxs(t *testing.T) {
 	}
 }
 
-func TestPendingTxContext_UpdateSignatureStatus(t *testing.T) {
-	t.Parallel()
-	txs := newPendingTxContext()
-	sig := randomSignature(t)
-	txID := uuid.NewString()
-	cancelFunc := func() {}
-
-	// Add new transaction and signature
-	tx := pendingTx{id: txID}
-	require.NoError(t, txs.New(tx))
-	require.NoError(t, txs.AddSignature(cancelFunc, txID, sig))
-
-	// updates signature status successfully
-	err := txs.UpdateSignatureStatus(sig, Confirmed)
-	require.NoError(t, err)
-	txInfo, exists := txs.sigToTxInfo[sig]
-	require.True(t, exists)
-	require.Equal(t, Confirmed, txInfo.state)
-
-	// updating non-existent signature returs error
-	nonExistentSig := randomSignature(t)
-	err = txs.UpdateSignatureStatus(nonExistentSig, Confirmed)
-	require.ErrorIs(t, err, ErrSigDoesNotExist)
-
-	// Test concurrent updates to ensure thread safety
-	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(status TxState) {
-			defer wg.Done()
-			err := txs.UpdateSignatureStatus(sig, status)
-			require.NoError(t, err)
-		}(Confirmed)
-	}
-	wg.Wait()
-
-	// Verify final status
-	txInfo, exists = txs.sigToTxInfo[sig]
-	require.True(t, exists)
-	require.Equal(t, Confirmed, txInfo.state)
-}
-
 func createTxAndAddSig(t *testing.T, txs *pendingTxContext) (string, solana.Signature) {
 	sig := randomSignature(t)
 	txID := uuid.NewString()
@@ -1458,172 +1415,123 @@ func createTxAndAddSig(t *testing.T, txs *pendingTxContext) (string, solana.Sign
 	return txID, sig
 }
 
-func TestPendingTxContext_OnReorg(t *testing.T) {
-	t.Parallel()
-	txs := newPendingTxContext()
-	t.Run("successfully reset transaction from Processed to Broadcasted", func(t *testing.T) {
-		// Transition to Processed state
-		txID, sig := createTxAndAddSig(t, txs)
-		_, err := txs.OnProcessed(sig)
-		require.NoError(t, err)
-
-		// Call OnReorg
-		require.NoError(t, txs.OnReorg(sig, txID))
-		pTx, err := txs.GetPendingTx(txID)
-		require.NoError(t, err)
-		require.Equal(t, Broadcasted, pTx.state)
-
-		// Verify the transaction's state is reset to Broadcasted
-		txInfo, exists := txs.broadcastedProcessedTxs[txID]
-		require.True(t, exists)
-		require.Equal(t, Broadcasted, txInfo.state)
-	})
-
-	t.Run("successfully reset transaction from Confirmed to Broadcasted", func(t *testing.T) {
-		// Transition to Processed and then Confirmed state
-		txID, sig := createTxAndAddSig(t, txs)
-		_, err := txs.OnProcessed(sig)
-		require.NoError(t, err)
-		_, err = txs.OnConfirmed(sig)
-		require.NoError(t, err)
-
-		// Call OnReorg
-		require.NoError(t, txs.OnReorg(sig, txID))
-		pTx, err := txs.GetPendingTx(txID)
-		require.NoError(t, err)
-		require.Equal(t, Broadcasted, pTx.state)
-
-		// Verify the transaction's state is reset to Broadcasted
-		txInfo, exists := txs.broadcastedProcessedTxs[txID]
-		require.True(t, exists)
-		require.Equal(t, Broadcasted, txInfo.state)
-
-		// Ensure it's removed from confirmed transactions
-		_, exists = txs.confirmedTxs[txID]
-		require.False(t, exists)
-	})
-
-	t.Run("fail to reset transaction in Finalized state", func(t *testing.T) {
-		// Transition to Processed, Confirmed, and then Finalized state
-		txID, sig := createTxAndAddSig(t, txs)
-		_, err := txs.OnProcessed(sig)
-		require.NoError(t, err)
-		_, err = txs.OnConfirmed(sig)
-		require.NoError(t, err)
-		_, err = txs.OnFinalized(sig, 10*time.Second)
-		require.NoError(t, err)
-
-		// Call OnReorg
-		err = txs.OnReorg(sig, txID)
-		require.Error(t, err)
-		require.Equal(t, ErrTransactionNotFound, err)
-	})
-
-	t.Run("fail to reset transaction in Errored state", func(t *testing.T) {
-		// Transition to Errored state
-		txID, sig := createTxAndAddSig(t, txs)
-		_, err := txs.OnError(sig, 10*time.Second, Errored, 0)
-		require.NoError(t, err)
-
-		// Call OnReorg
-		err = txs.OnReorg(sig, txID)
-		require.Error(t, err)
-		require.Equal(t, ErrTransactionNotFound, err)
-	})
-
-	t.Run("fail to reset non-existent transaction", func(t *testing.T) {
-		err := txs.OnReorg(randomSignature(t), "non-existent")
-		require.Error(t, err)
-		require.Equal(t, ErrTransactionNotFound, err)
-	})
-}
-
-func TestPendingTxContext_GetSignatureInfo(t *testing.T) {
-	t.Parallel()
-	// Initialize a new pendingTxContext
-	txs := newPendingTxContext()
-	t.Run("successfully retrieve existing signature info", func(t *testing.T) {
-		txID, sig := createTxAndAddSig(t, txs)
-		// Retrieve the signature info
-		info, err := txs.GetSignatureInfo(sig)
-		require.NoError(t, err)
-		require.Equal(t, txID, info.id)
-		require.Equal(t, Broadcasted, info.state)
-	})
-
-	t.Run("fail to retrieve non-existent signature info", func(t *testing.T) {
-		nonExistentSig := randomSignature(t)
-
-		// Attempt to retrieve info for a signature that doesn't exist
-		_, err := txs.GetSignatureInfo(nonExistentSig)
-		require.ErrorIs(t, err, ErrSigDoesNotExist)
-	})
-
-	t.Run("concurrent access to GetSignatureInfo", func(t *testing.T) {
-		txID, sig := createTxAndAddSig(t, txs)
-
-		// Perform concurrent reads
-		var wg sync.WaitGroup
-		for i := 0; i < 5; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				info, err := txs.GetSignatureInfo(sig)
-				require.NoError(t, err)
-				require.Equal(t, txID, info.id)
-			}()
-		}
-		wg.Wait()
-	})
-}
-
 func TestPendingTxContext_TxHasReorg(t *testing.T) {
 	t.Parallel()
 	txs := newPendingTxContext()
-	cancelFunc := func() {}
-	t.Run("no reorg: tx does not exist", func(t *testing.T) {
-		hasReorg := txs.TxHasReorg("non-existent")
-		require.False(t, hasReorg, "expected no reorg for non-existent transaction")
-	})
 
-	t.Run("no reorg: a signature >= transaction state", func(t *testing.T) {
-		// Create transaction and add signatures
-		txID, sig1 := createTxAndAddSig(t, txs)
-		sig2 := randomSignature(t)
-		require.NoError(t, txs.AddSignature(cancelFunc, txID, sig2))
+	// This helper creates a brand new transaction/signature,
+	// then sets the in-memory state to the provided memoryState
+	setMemoryState := func(t *testing.T, txs *pendingTxContext, memoryState TxState) (txID string, sig solana.Signature) {
+		txID, sig = createTxAndAddSig(t, txs)
 
-		// Transition transaction to Confirmed through sig1
-		_, err := txs.OnProcessed(sig1)
-		require.NoError(t, err)
-		_, err = txs.OnConfirmed(sig1)
-		require.NoError(t, err)
+		switch memoryState {
+		case Processed:
+			_, err := txs.OnProcessed(sig)
+			require.NoError(t, err, "OnProcessed should succeed")
+		case Confirmed:
+			_, err := txs.OnProcessed(sig)
+			require.NoError(t, err)
+			_, err = txs.OnConfirmed(sig)
+			require.NoError(t, err, "OnConfirmed should succeed")
+		case Broadcasted: // do nothing; newly created sig is in memory=Broadcasted by default
+		default:
+			require.FailNowf(t, "unexpected memory state", "%v", memoryState)
+		}
+		return
+	}
 
-		// sig1 is Confirmed and sig2 is Broadcasted.
-		// TxHasReorg should return false because sig1 >= tx state = Confirmed
-		hasReorg := txs.TxHasReorg(txID)
-		require.False(t, hasReorg, "expected no reorg when all signatures are >= transaction state")
-	})
+	tests := []struct {
+		name        string
+		memoryState TxState
+		chainState  TxState
+		wantReorg   bool
+	}{
+		{
+			name:        "non-existent signature => no reorg",
+			memoryState: Broadcasted, // doesn't matter, we'll handle this case specially
+			chainState:  Broadcasted,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Confirmed, chain=Confirmed => no reorg",
+			memoryState: Confirmed,
+			chainState:  Confirmed,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Confirmed, chain=Processed => reorg",
+			memoryState: Confirmed,
+			chainState:  Processed,
+			wantReorg:   true,
+		},
+		{
+			name:        "memory=Confirmed, chain=NotFound => reorg",
+			memoryState: Confirmed,
+			chainState:  NotFound,
+			wantReorg:   true,
+		},
+		{
+			name:        "memory=Processed, chain=Confirmed => no reorg",
+			memoryState: Processed,
+			chainState:  Confirmed,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Processed, chain=Processed => no reorg",
+			memoryState: Processed,
+			chainState:  Processed,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Processed, chain=NotFound => reorg",
+			memoryState: Processed,
+			chainState:  NotFound,
+			wantReorg:   true,
+		},
+		{
+			name:        "memory=Broadcasted, chain=Confirmed => no reorg",
+			memoryState: Broadcasted,
+			chainState:  Confirmed,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Broadcasted, chain=Processed => no reorg",
+			memoryState: Broadcasted,
+			chainState:  Processed,
+			wantReorg:   false,
+		},
+		{
+			name:        "memory=Broadcasted, chain=NotFound => no reorg",
+			memoryState: Broadcasted,
+			chainState:  NotFound,
+			wantReorg:   false,
+		},
+	}
 
-	t.Run("reorg: all signatures < transaction state", func(t *testing.T) {
-		// Create transaction and add signatures
-		txID, sig1 := createTxAndAddSig(t, txs)
-		sig2 := randomSignature(t)
-		require.NoError(t, txs.AddSignature(cancelFunc, txID, sig2))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		// Transition transaction to Confirmed through sig1
-		_, err := txs.OnProcessed(sig1)
-		require.NoError(t, err)
-		_, err = txs.OnConfirmed(sig1)
-		require.NoError(t, err)
+			// handle special case
+			if tt.name == "non-existent signature => no reorg" {
+				// don't create any signature in memory
+				txID, hasReorg := txs.TxHasReorg(randomSignature(t), tt.chainState)
+				require.False(t, hasReorg, "expected no reorg for unknown sig")
+				require.Empty(t, txID, "expected empty txID for unknown sig")
+				return
+			}
 
-		// Regress sig1 to processed state
-		require.NoError(t, txs.UpdateSignatureStatus(sig1, Processed))
-
-		// Now, sig1 is in Processed state and sig2 is in Broadcasted state.
-		// TxHasReorg should return true because all sigs are < transaction state = Confirmed
-		hasReorg := txs.TxHasReorg(txID)
-		require.True(t, hasReorg, "expected reorg when all signatures are < transaction state")
-	})
+			// create + set memory state, run TxHasReorg and assert for all other test cases
+			creationTxID, sig := setMemoryState(t, txs, tt.memoryState)
+			returnedTxID, hasReorg := txs.TxHasReorg(sig, tt.chainState)
+			require.Equal(t, creationTxID, returnedTxID, "expected same txID")
+			if tt.wantReorg {
+				require.True(t, hasReorg, "expected reorg for memory=%v, chain=%v", tt.memoryState, tt.chainState)
+			} else {
+				require.False(t, hasReorg, "expected no reorg for memory=%v, chain=%v", tt.memoryState, tt.chainState)
+			}
+		})
+	}
 }
 
 func TestPendingTxContext_GetPendingTx(t *testing.T) {

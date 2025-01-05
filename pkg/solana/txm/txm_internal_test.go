@@ -5,6 +5,7 @@ package txm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -485,59 +486,6 @@ func TestTxm(t *testing.T) {
 
 				// handle signature status calls (initial stays processed, others don't exist)
 				statuses[sig] = func() (out *rpc.SignatureStatusesResult) {
-					return &rpc.SignatureStatusesResult{
-						ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-					}
-				}
-
-				// tx should be able to queue
-				testTxID := uuid.New().String()
-				lastValidBlockHeight := uint64(100)
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, lastValidBlockHeight))
-				wg.Wait()                                  // wait to be picked up and processed
-				waitFor(t, waitDuration, txm, prom, empty) // inflight txs cleared after timeout
-
-				// check prom metric
-				prom.error++
-				prom.drop++
-				prom.assertEqual(t)
-
-				_, err := txm.GetTransactionStatus(ctx, testTxID)
-				require.Error(t, err) // transaction cleared from storage after finalized should not return status
-
-				// panic if sendTx called after context cancelled
-				mc.On("SendTx", mock.Anything, tx).Panic("SendTx should not be called anymore").Maybe()
-			})
-
-			// tx passes sim, shows processed, moves to nil (timeout should cleanup)
-			t.Run("fail_confirm_processedToNil", func(t *testing.T) {
-				tx, signed := getTx(t, 8, mkey)
-				sig := randomSignature(t)
-				retry0 := randomSignature(t)
-				retry1 := randomSignature(t)
-				retry2 := randomSignature(t)
-				retry3 := randomSignature(t)
-				var wg sync.WaitGroup
-				wg.Add(1)
-
-				mc.On("SendTx", mock.Anything, signed(0, true, computeUnitLimitDefault)).Return(sig, nil)
-				mc.On("SendTx", mock.Anything, signed(1, true, computeUnitLimitDefault)).Return(retry0, nil)
-				mc.On("SendTx", mock.Anything, signed(2, true, computeUnitLimitDefault)).Return(retry1, nil)
-				mc.On("SendTx", mock.Anything, signed(3, true, computeUnitLimitDefault)).Return(retry2, nil).Maybe()
-				mc.On("SendTx", mock.Anything, signed(4, true, computeUnitLimitDefault)).Return(retry3, nil).Maybe()
-				mc.On("SimulateTx", mock.Anything, signed(0, true, computeUnitLimitDefault), mock.Anything).Run(func(mock.Arguments) {
-					wg.Done()
-				}).Return(&rpc.SimulateTransactionResult{}, nil).Once()
-
-				// handle signature status calls (initial stays processed => nil, others don't exist)
-				count := 0
-				statuses[sig] = func() (out *rpc.SignatureStatusesResult) {
-					defer func() { count++ }()
-
-					if count > 2 {
-						return nil
-					}
-
 					return &rpc.SignatureStatusesResult{
 						ConfirmationStatus: rpc.ConfirmationStatusProcessed,
 					}
@@ -1597,7 +1545,7 @@ func TestTxm_ExpirationRebroadcast(t *testing.T) {
 	})
 }
 
-func TestTxm_SingleSigOnReorg(t *testing.T) {
+func TestTxm_OnReorg(t *testing.T) {
 	t.Parallel()
 	estimator := "fixed"
 	id := "mocknet-" + estimator + "-" + uuid.NewString()
@@ -1609,7 +1557,7 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 	lggr := logger.Test(t)
 	ctx := tests.Context(t)
 
-	// Helper function to set up common test environment
+	// Helper that sets up a Txm and mocks.
 	setupTxmTest := func(
 		txExpirationRebroadcast bool,
 		latestBlockhashFunc func() (*rpc.GetLatestBlockhashResult, error),
@@ -1621,25 +1569,19 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 
 		mc := mocks.NewReaderWriter(t)
 		if latestBlockhashFunc != nil {
-			mc.On("LatestBlockhash", mock.Anything).Return(
-				func(_ context.Context) (*rpc.GetLatestBlockhashResult, error) {
-					return latestBlockhashFunc()
-				},
-			).Maybe()
+			mc.On("LatestBlockhash", mock.Anything).Return(func(_ context.Context) (*rpc.GetLatestBlockhashResult, error) {
+				return latestBlockhashFunc()
+			}).Maybe()
 		}
 		if getLatestBlockHeightFunc != nil {
-			mc.On("GetLatestBlockHeight", mock.Anything).Return(
-				func(_ context.Context) (uint64, error) {
-					return getLatestBlockHeightFunc()
-				},
-			).Maybe()
+			mc.On("GetLatestBlockHeight", mock.Anything).Return(func(_ context.Context) (uint64, error) {
+				return getLatestBlockHeightFunc()
+			}).Maybe()
 		}
 		if sendTxFunc != nil {
-			mc.On("SendTx", mock.Anything, mock.Anything).Return(
-				func(_ context.Context, _ *solana.Transaction) (solana.Signature, error) {
-					return sendTxFunc()
-				},
-			).Maybe()
+			mc.On("SendTx", mock.Anything, mock.Anything).Return(func(_ context.Context, _ *solana.Transaction) (solana.Signature, error) {
+				return sendTxFunc()
+			}).Maybe()
 		}
 		mc.On("SimulateTx", mock.Anything, mock.Anything, mock.Anything).Return(&rpc.SimulateTransactionResult{}, nil).Maybe()
 		if statuses != nil {
@@ -1670,234 +1612,112 @@ func TestTxm_SingleSigOnReorg(t *testing.T) {
 		return txm, mc, mkey
 	}
 
-	// tracking prom metrics
-	prom := soltxmProm{id: id}
+	prom := soltxmProm{id: id} // track Prometheus metrics across runs
 
-	t.Run("regressing from confirmed state restarts retry/bumping cycle", func(t *testing.T) {
-		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
+	type scenario struct {
+		name           string
+		initialSigFrom rpc.ConfirmationStatusType // e.g. "processed", "confirmed"
+	}
 
-		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
-			return &rpc.GetLatestBlockhashResult{
-				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(2000),
-				},
-			}, nil
-		}
+	tests := []scenario{
+		{
+			name:           "confirmed => re-org => new tx finalizes",
+			initialSigFrom: rpc.ConfirmationStatusConfirmed,
+		},
+		{
+			name:           "processed => re-org => new tx finalizes",
+			initialSigFrom: rpc.ConfirmationStatusProcessed,
+		},
+	}
 
-		sig1 := randomSignature(t)
-		sendTxFunc := func() (solana.Signature, error) {
-			return sig1, nil
-		}
-
-		var wg sync.WaitGroup
-		statusCallCount := 0
-		wg.Add(1)
-		statuses[sig1] = func() *rpc.SignatureStatusesResult {
-			defer func() { statusCallCount++ }()
-			if statusCallCount < 1 {
-				// Initially, transaction is Processed
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-				}
-			}
-
-			if statusCallCount < 3 {
-				// Transaction should be confirmed
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
-				}
-			}
-
-			if statusCallCount < 5 {
-				// Simulate reorg: transaction status regresses to NotFound
-				return nil // Status is nil (NotFound)
-			}
-
-			if statusCallCount < 7 {
-				// Transaction should be processed again
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-				}
-			}
-
-			if statusCallCount < 9 {
-				// Transaction should be confirmed again
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
-				}
-			}
-
-			// Transaction should be finalized
-			wg.Done()
-			return &rpc.SignatureStatusesResult{
-				ConfirmationStatus: rpc.ConfirmationStatusFinalized,
-			}
-		}
-
-		txm, _, mkey := setupTxmTest(false, latestBlockhashFunc, nil, sendTxFunc, statuses)
-		tx, _ := getTx(t, 0, mkey)
-		txID := "test-reorg-from-confirmed"
-		lastValidBlockHeight := uint64(100)
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID, lastValidBlockHeight))
-		wg.Wait()
-		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
-
-		// check prom metric
-		prom.confirmed++
-		prom.confirmed++
-		prom.finalized++
-		prom.assertEqual(t)
-
-		// Check that transaction for txID has been finalized
-		status, err := txm.GetTransactionStatus(ctx, txID)
-		require.NoError(t, err)
-		require.Equal(t, types.Finalized, status)
-	})
-
-	t.Run("regressing from processed state does not restart retry/bumping cycle", func(t *testing.T) {
-		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
-
-		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
-			return &rpc.GetLatestBlockhashResult{
-				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(2000),
-				},
-			}, nil
-		}
-
-		sig1 := randomSignature(t)
-		sendTxFunc := func() (solana.Signature, error) {
-			return sig1, nil
-		}
-
-		statusCallCount := 0
-		var wg sync.WaitGroup
-		wg.Add(1)
-		statuses[sig1] = func() *rpc.SignatureStatusesResult {
-			defer func() { statusCallCount++ }()
-			if statusCallCount == 0 {
-				// Initially, transaction is Processed
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-				}
-			}
-			if statusCallCount == 1 {
-				wg.Done()
-			}
-			// Simulate reorg: transaction status regresses to NotFound (nil)
-			return nil
-		}
-
-		txm, _, mkey := setupTxmTest(false, latestBlockhashFunc, nil, sendTxFunc, statuses)
-		tx, _ := getTx(t, 0, mkey)
-		txID := "test-reorg-from-processed-without-rebroadcast"
-		lastValidBlockHeight := uint64(100)
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID, lastValidBlockHeight))
-		wg.Wait()
-		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
-
-		// check prom metric
-		// Transaction should be dropped after reorg and not rebroadcasted when expirationRebroadcast is off
-		prom.error++
-		prom.drop++
-		prom.assertEqual(t)
-
-		// Check that transaction for txID has failed
-		status, err := txm.GetTransactionStatus(ctx, txID)
-		require.NoError(t, err)
-		require.Equal(t, types.Failed, status)
-	})
-
-	t.Run("regressing from processed state rebroadcasts tx on expiration when enabled", func(t *testing.T) {
-		statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{}
-
-		getLatestBlockHeightFunc := func() (uint64, error) {
-			return 1500, nil
-		}
-
-		latestBlockhashCallCount := 0
-		latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
-			defer func() { latestBlockhashCallCount++ }()
-			if latestBlockhashCallCount < 1 {
-				// To force rebroadcast, first call needs to be smaller than blockHeight
+	for _, sc := range tests {
+		t.Run(sc.name, func(t *testing.T) {
+			// mock latest blockhash. Re-orged tx needs to be broadcasted with a new blockhash
+			latestBlockhashFunc := func() (*rpc.GetLatestBlockhashResult, error) {
 				return &rpc.GetLatestBlockhashResult{
 					Value: &rpc.LatestBlockhashResult{
-						LastValidBlockHeight: uint64(1000),
+						Blockhash:            solana.HashFromBytes([]byte{2}),
+						LastValidBlockHeight: 2001,
 					},
 				}, nil
 			}
-			// following rebroadcast call will go through because lastValidBlockHeight is bigger than blockHeight
-			return &rpc.GetLatestBlockhashResult{
-				Value: &rpc.LatestBlockhashResult{
-					LastValidBlockHeight: uint64(2000),
+
+			initialSig := randomSignature(t)
+			var initialTxCtxStopped bool
+
+			retrySig := randomSignature(t)
+			sendTxFunc := func() (solana.Signature, error) {
+				// We will return the initialSig until the re-org happens
+				// After that, we'll return the retrySig as the prior tx is replaced and context cancelled
+				if !initialTxCtxStopped {
+					return initialSig, nil
+				}
+				return retrySig, nil
+			}
+
+			// Mock the on-chain status of the initial tx
+			var initialStatusCallCount int
+			var wg sync.WaitGroup
+			wg.Add(1)
+			statuses := map[solana.Signature]func() *rpc.SignatureStatusesResult{
+				initialSig: func() *rpc.SignatureStatusesResult {
+					defer func() { initialStatusCallCount++ }()
+					if initialStatusCallCount < 2 {
+						// keep returning sc.initialSigFrom (e.g. Confirmed or Processed)
+						return &rpc.SignatureStatusesResult{
+							ConfirmationStatus: sc.initialSigFrom,
+						}
+					}
+
+					// simulate re-org => NotFound
+					initialTxCtxStopped = true
+					wg.Done()
+					return nil
 				},
-			}, nil
-		}
+			}
 
-		sig1 := randomSignature(t)
-		sendTxFunc := func() (solana.Signature, error) {
-			return sig1, nil
-		}
-
-		statusCallCount, statusCallRebroadcastCount := 0, 0
-		nowTs := time.Now()
-		var wg sync.WaitGroup
-		wg.Add(1)
-		statuses[sig1] = func() *rpc.SignatureStatusesResult {
-			defer func() { statusCallCount++ }()
-
-			// Initially, transaction is Processed
-			if statusCallCount == 0 {
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
+			// Mock the on-chain status of the re-orged tx. It will eventually finalize
+			var retryStatusCallCount int
+			wg.Add(1)
+			statuses[retrySig] = func() *rpc.SignatureStatusesResult {
+				defer func() { retryStatusCallCount++ }()
+				switch retryStatusCallCount {
+				case 0:
+					return &rpc.SignatureStatusesResult{ConfirmationStatus: rpc.ConfirmationStatusProcessed}
+				case 1, 2:
+					return &rpc.SignatureStatusesResult{ConfirmationStatus: rpc.ConfirmationStatusConfirmed}
+				default:
+					wg.Done()
+					return &rpc.SignatureStatusesResult{ConfirmationStatus: rpc.ConfirmationStatusFinalized}
 				}
 			}
 
-			// we get regression after first call
-			if time.Since(nowTs) < cfg.TxConfirmTimeout()-2*time.Second {
-				return nil
+			txm, _, mkey := setupTxmTest(false, latestBlockhashFunc, nil, sendTxFunc, statuses)
+
+			// Enqueue our transaction to the Txm
+			tx, _ := getTx(t, 0, mkey)
+			txID := fmt.Sprintf("reorg-from-%s", sc.initialSigFrom)
+			lastValidBlockHeight := uint64(100)
+			require.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID, lastValidBlockHeight))
+
+			// Wait for the states to move from initial => re-org => new => finalized
+			// Wait txm get the final states or timeouts of the transactions.
+			wg.Wait()
+			waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
+
+			// check prom metric increments
+			if sc.initialSigFrom == rpc.ConfirmationStatusConfirmed {
+				prom.confirmed++ // in case initial tx was confirmed
 			}
+			// re-orged tx should always be confirmed and finalized
+			prom.confirmed++
+			prom.finalized++
+			prom.assertEqual(t)
 
-			// Transaction should be rebroadcasted and go through each state after expiration rebroadcast
-			if statusCallRebroadcastCount == 0 {
-				statusCallRebroadcastCount++
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusProcessed,
-				}
-			}
-
-			if statusCallRebroadcastCount == 1 {
-				statusCallRebroadcastCount++
-				return &rpc.SignatureStatusesResult{
-					ConfirmationStatus: rpc.ConfirmationStatusConfirmed,
-				}
-			}
-
-			wg.Done()
-			return &rpc.SignatureStatusesResult{
-				ConfirmationStatus: rpc.ConfirmationStatusFinalized,
-			}
-		}
-
-		txm, _, mkey := setupTxmTest(true, latestBlockhashFunc, getLatestBlockHeightFunc, sendTxFunc, statuses)
-		tx, _ := getTx(t, 0, mkey)
-		txID := "test-reorg-from-processed-with-rebroadcast"
-		lastValidBlockHeight := uint64(100)
-		assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &txID, lastValidBlockHeight))
-		wg.Wait()
-		waitFor(t, txm.cfg.TxConfirmTimeout(), txm, prom, empty)
-
-		// check prom metric
-		// Transaction should be rebroadcasted and finalized
-		prom.confirmed++
-		prom.finalized++
-		prom.assertEqual(t)
-		prom.assertEqual(t)
-
-		// Check that transaction for txID has been finalized and rebroadcasted 1 time.
-		status, err := txm.GetTransactionStatus(ctx, txID)
-		require.NoError(t, err)
-		require.Equal(t, types.Finalized, status)
-		require.Equal(t, 1, latestBlockhashCallCount-1) // -1 because the first call is not a rebroadcast
-	})
+			// Ensure the TX is Finalized in memory
+			status, err := txm.GetTransactionStatus(ctx, txID)
+			require.NoError(t, err)
+			require.Equal(t, types.Finalized, status)
+		})
+	}
 }

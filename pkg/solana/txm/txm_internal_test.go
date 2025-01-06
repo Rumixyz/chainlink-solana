@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/fees"
 	keyMocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/mocks"
+	txmutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm/utils"
 
 	relayconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -635,7 +636,7 @@ func TestTxm(t *testing.T) {
 				// send tx - with disabled fee bumping
 				testTxID := uuid.New().String()
 				lastValidBlockHeight := uint64(100)
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, lastValidBlockHeight, SetFeeBumpPeriod(0)))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, lastValidBlockHeight, txmutils.SetFeeBumpPeriod(0)))
 				wg.Wait()
 
 				// no transactions stored inflight txs list
@@ -688,7 +689,7 @@ func TestTxm(t *testing.T) {
 				// send tx - with disabled fee bumping and disabled compute unit limit
 				testTxID := uuid.New().String()
 				lastValidBlockHeight := uint64(100)
-				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, lastValidBlockHeight, SetFeeBumpPeriod(0), SetComputeUnitLimit(0)))
+				assert.NoError(t, txm.Enqueue(ctx, t.Name(), tx, &testTxID, lastValidBlockHeight, txmutils.SetFeeBumpPeriod(0), txmutils.SetComputeUnitLimit(0)))
 				wg.Wait()
 
 				// no transactions stored inflight txs list

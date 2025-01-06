@@ -1415,7 +1415,7 @@ func createTxAndAddSig(t *testing.T, txs *pendingTxContext) (string, solana.Sign
 	return txID, sig
 }
 
-func TestPendingTxContext_TxHasReorg(t *testing.T) {
+func TestPendingTxContext_IsTxReorged(t *testing.T) {
 	t.Parallel()
 	txs := newPendingTxContext()
 
@@ -1515,15 +1515,15 @@ func TestPendingTxContext_TxHasReorg(t *testing.T) {
 			// handle special case
 			if tt.name == "non-existent signature => no reorg" {
 				// don't create any signature in memory
-				txID, hasReorg := txs.TxHasReorg(randomSignature(t), tt.chainState)
+				txID, hasReorg := txs.IsTxReorged(randomSignature(t), tt.chainState)
 				require.False(t, hasReorg, "expected no reorg for unknown sig")
 				require.Empty(t, txID, "expected empty txID for unknown sig")
 				return
 			}
 
-			// create + set memory state, run TxHasReorg and assert for all other test cases
+			// create + set memory state, run IsTxReorged and assert for all other test cases
 			creationTxID, sig := setMemoryState(t, txs, tt.memoryState)
-			returnedTxID, hasReorg := txs.TxHasReorg(sig, tt.chainState)
+			returnedTxID, hasReorg := txs.IsTxReorged(sig, tt.chainState)
 			require.Equal(t, creationTxID, returnedTxID, "expected same txID")
 			if tt.wantReorg {
 				require.True(t, hasReorg, "expected reorg for memory=%v, chain=%v", tt.memoryState, tt.chainState)

@@ -526,7 +526,7 @@ func (txm *Txm) handleErrorSignatureStatus(sig solanaGo.Signature, status *rpc.S
 func (txm *Txm) handleReorg(ctx context.Context, client client.ReaderWriter, sig solanaGo.Signature, status *rpc.SignatureStatusesResult) {
 	// Determine if a re-org has occurred
 	sigState := convertStatus(status)
-	txID, hasReorg := txm.txs.TxHasReorg(sig, sigState)
+	txID, hasReorg := txm.txs.IsTxReorged(sig, sigState)
 	if !hasReorg {
 		return
 	}
@@ -965,7 +965,7 @@ func (txm *Txm) InflightTxs() int {
 // Removes all signatures associated with the prior tx, cancels prior ctx, updates compute unit price and sets given blockhash for rebroadcasting.
 // Calls sendWithRetry directly to avoid enqueuing the transaction. It logs the error when rebroadcast fails and returns the new signature when successful.
 func (txm *Txm) rebroadcastWithGivenBlockhash(ctx context.Context, pTx pendingTx, blockhash solana.Hash, lastValidBlockHeight uint64) (solana.Signature, error) {
-	// Removes all signatures associated to prior tx and cancels context.
+	// Remove the previous tx from state
 	_, err := txm.txs.Remove(pTx.id)
 	if err != nil {
 		txm.lggr.Errorw("failed to remove tx", "id", pTx.id, "error", err)

@@ -48,12 +48,12 @@ type PendingTxContext interface {
 	GetTxState(id string) (TxState, error)
 	// TrimFinalizedErroredTxs removes transactions that have reached their retention time
 	TrimFinalizedErroredTxs() int
-	// TxHasReorg determines whether the given signature has experienced a re-org by comparing its in-memory state with its current on-chain state.
+	// IsTxReorged determines whether the given signature has experienced a re-org by comparing its in-memory state with its current on-chain state.
 	// A re-org is identified when the state of a signature regresses as follows:
 	// 	- Confirmed -> Processed || Broadcasted || Not Found
 	// 	- Processed -> Broadcasted || Not Found
 	// The function returns the transaction ID associated with the signature and a boolean indicating whether a re-org has occurred.
-	TxHasReorg(sig solana.Signature, currentState TxState) (string, bool)
+	IsTxReorged(sig solana.Signature, currentState TxState) (string, bool)
 	// GetPendingTx returns the pendingTx for the given ID if it exists
 	GetPendingTx(id string) (pendingTx, error)
 }
@@ -573,7 +573,7 @@ func (c *pendingTxContext) TrimFinalizedErroredTxs() int {
 	return len(expiredIDs)
 }
 
-func (c *pendingTxContext) TxHasReorg(sig solana.Signature, sigOnChainState TxState) (string, bool) {
+func (c *pendingTxContext) IsTxReorged(sig solana.Signature, sigOnChainState TxState) (string, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -746,8 +746,8 @@ func (c *pendingTxContextWithProm) TrimFinalizedErroredTxs() int {
 	return c.pendingTx.TrimFinalizedErroredTxs()
 }
 
-func (c *pendingTxContextWithProm) TxHasReorg(sig solana.Signature, currentSigState TxState) (string, bool) {
-	return c.pendingTx.TxHasReorg(sig, currentSigState)
+func (c *pendingTxContextWithProm) IsTxReorged(sig solana.Signature, currentSigState TxState) (string, bool) {
+	return c.pendingTx.IsTxReorged(sig, currentSigState)
 }
 
 func (c *pendingTxContextWithProm) GetPendingTx(id string) (pendingTx, error) {

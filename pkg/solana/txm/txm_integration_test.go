@@ -291,7 +291,7 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		require.Equal(t, amount, finalReceiverBalance, "Receiver should receive the transferred amount")
 	})
 
-	t.Run("reorg from confirmed state handled gracefully", func(t *testing.T) {
+	t.Run("confirmed reorg", func(t *testing.T) {
 		// Start live validator and setup test environment
 		t.Parallel()
 		ledgerDir := t.TempDir()

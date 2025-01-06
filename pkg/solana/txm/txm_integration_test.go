@@ -191,74 +191,9 @@ func createTransaction(ctx context.Context, t *testing.T, client *solanaClient.C
 
 func TestTxm_Integration_Reorg(t *testing.T) {
 	t.Parallel()
-
-	// startValidator is a helper func that starts a local solana-test-validator and return the cmd to control it.
-	startValidator := func(t *testing.T, ledgerDir, port, faucetPort string, reset bool) (*exec.Cmd, string) {
-		t.Helper()
-
-		args := []string{
-			"--rpc-port", port,
-			"--faucet-port", faucetPort,
-			"--ledger", ledgerDir,
-		}
-		if reset {
-			args = append([]string{"--reset"}, args...)
-		}
-
-		cmd := exec.Command("solana-test-validator", args...)
-
-		var stdErr, stdOut bytes.Buffer
-		cmd.Stderr = &stdErr
-		cmd.Stdout = &stdOut
-
-		require.NoError(t, cmd.Start(), "failed to start solana-test-validator")
-
-		// The RPC URL
-		url := "http://127.0.0.1:" + port
-
-		// Ensure validator is killed after the test finishes
-		t.Cleanup(func() {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		})
-
-		// Wait until it's healthy
-		client := rpc.New(url)
-		require.Eventually(t, func() bool {
-			out, err := client.GetHealth(context.Background())
-			return err == nil && out == rpc.HealthOk
-		}, 30*time.Second, 1*time.Second, "Validator should become healthy")
-
-		return cmd, url
-	}
-
-	// copyDir is a helper func that copies the directory tree.
-	copyDir := func(src, dst string) error {
-		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			relPath, err := filepath.Rel(src, path)
-			if err != nil {
-				return err
-			}
-			dstPath := filepath.Join(dst, relPath)
-
-			if info.IsDir() {
-				return os.MkdirAll(dstPath, info.Mode())
-			}
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			return os.WriteFile(dstPath, data, info.Mode())
-		})
-	}
-
 	t.Run("no reorg", func(t *testing.T) {
 		// Setup live validator and test environment
+		t.Parallel()
 		url := solanaClient.SetupLocalSolNode(t)
 		ctx, client, txmInstance, senderPubKey, receiverPubKey, observer := setup(t, url, true)
 
@@ -290,8 +225,9 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		require.Equal(t, amount, finalReceiverBalance, "Receiver should receive the transferred amount")
 	})
 
-	t.Run("confirmed reorg", func(t *testing.T) {
+	t.Run("confirmed reorg: previous tx is replaced and new one is finalized", func(t *testing.T) {
 		// Start live validator and setup test environment
+		t.Parallel()
 		ledgerDir := t.TempDir()
 		port := utils.MustRandomPort(t)
 		faucetPort := utils.MustRandomPort(t)
@@ -306,7 +242,7 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 
 		// Create TX and wait for it to be confirmed
 		const amount = 1 * solana.LAMPORTS_PER_SOL
-		txID := "reorg"
+		txID := "reorg-test-tx"
 		tx, lastValidBlockHeight := createTransaction(ctx, t, cl, senderPubKey, receiverPubKey, amount, true)
 		require.NoError(t, txmInstance.Enqueue(ctx, "", tx, &txID, lastValidBlockHeight))
 		require.Eventually(t, func() bool {
@@ -344,7 +280,7 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		reorgLogs := obs.FilterMessageSnippet("re-org detected for transaction").Len()
 		require.Equal(t, reorgLogs, 1, "Re-org should be detected")
 		rebroadcastReorgLogs := obs.FilterMessageSnippet("re-orged tx was rebroadcasted successfully").Len()
-		require.Equal(t, rebroadcastReorgLogs, 1, "re-org tx should be rebroadcasted successfully")
+		require.Equal(t, rebroadcastReorgLogs, 1, "re-org tx should be rebroadcasted with new blockhash")
 
 		// Wait rebroadcasted tx to be finalized and check final balances
 		require.Eventually(t, func() bool {
@@ -363,5 +299,74 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 		status, errGetStatus = txmInstance.GetTransactionStatus(ctx, txID)
 		require.NoError(t, errGetStatus)
 		require.Equal(t, types.Finalized, status, "tx should be finalized after reorg")
+	})
+}
+
+// startValidator starts a local solana-test-validator and return the cmd to control it.
+func startValidator(
+	t *testing.T,
+	ledgerDir, port, faucetPort string,
+	reset bool,
+) (*exec.Cmd, string) {
+	t.Helper()
+
+	args := []string{
+		"--rpc-port", port,
+		"--faucet-port", faucetPort,
+		"--ledger", ledgerDir,
+	}
+	if reset {
+		args = append([]string{"--reset"}, args...)
+	}
+
+	cmd := exec.Command("solana-test-validator", args...)
+
+	var stdErr, stdOut bytes.Buffer
+	cmd.Stderr = &stdErr
+	cmd.Stdout = &stdOut
+
+	require.NoError(t, cmd.Start(), "failed to start solana-test-validator")
+
+	// The RPC URL
+	url := "http://127.0.0.1:" + port
+
+	// Ensure validator is killed after the test finishes
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	// Wait until it's healthy
+	client := rpc.New(url)
+	require.Eventually(t, func() bool {
+		out, err := client.GetHealth(context.Background())
+		return err == nil && out == rpc.HealthOk
+	}, 30*time.Second, 1*time.Second, "Validator should become healthy")
+
+	return cmd, url
+}
+
+// copyDir copies the directory tree.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		return os.WriteFile(dstPath, data, info.Mode())
 	})
 }

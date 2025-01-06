@@ -259,7 +259,6 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 
 	t.Run("no reorg", func(t *testing.T) {
 		// Setup live validator and test environment
-		t.Parallel()
 		url := solanaClient.SetupLocalSolNode(t)
 		ctx, client, txmInstance, senderPubKey, receiverPubKey, observer := setup(t, url, true)
 
@@ -293,7 +292,6 @@ func TestTxm_Integration_Reorg(t *testing.T) {
 
 	t.Run("confirmed reorg", func(t *testing.T) {
 		// Start live validator and setup test environment
-		t.Parallel()
 		ledgerDir := t.TempDir()
 		port := utils.MustRandomPort(t)
 		faucetPort := utils.MustRandomPort(t)

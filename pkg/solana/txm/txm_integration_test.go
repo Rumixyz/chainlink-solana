@@ -70,6 +70,7 @@ func TestTxm_Integration_ExpirationRebroadcast(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			tc := tc
 			t.Parallel()
 			ctx, client, txmInstance, senderPubKey, receiverPubKey, observer := setup(t, url, tc.txExpirationRebroadcast)
 

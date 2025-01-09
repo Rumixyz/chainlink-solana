@@ -30,8 +30,9 @@ type SolanaChainWriterService struct {
 	ge     fees.Estimator
 	config ChainWriterConfig
 
-	parsed  *codec.ParsedTypes
-	encoder types.Encoder
+	parsed    *codec.ParsedTypes
+	encoder   types.Encoder
+	modifiers map[string]commoncodec.Modifier
 
 	services.StateMachine
 }
@@ -63,12 +64,13 @@ type MethodConfig struct {
 
 func NewSolanaChainWriterService(logger logger.Logger, reader client.Reader, txm txm.TxManager, ge fees.Estimator, config ChainWriterConfig) (*SolanaChainWriterService, error) {
 	w := SolanaChainWriterService{
-		lggr:   logger,
-		reader: reader,
-		txm:    txm,
-		ge:     ge,
-		config: config,
-		parsed: &codec.ParsedTypes{EncoderDefs: map[string]codec.Entry{}, DecoderDefs: map[string]codec.Entry{}},
+		lggr:      logger,
+		reader:    reader,
+		txm:       txm,
+		ge:        ge,
+		config:    config,
+		parsed:    &codec.ParsedTypes{EncoderDefs: map[string]codec.Entry{}, DecoderDefs: map[string]codec.Entry{}},
+		modifiers: make(map[string]commoncodec.Modifier),
 	}
 
 	if err := w.parsePrograms(config); err != nil {
@@ -99,6 +101,7 @@ func (s *SolanaChainWriterService) parsePrograms(config ChainWriterConfig) error
 			if err != nil {
 				return fmt.Errorf("failed to create input modifications for method %s.%s, error: %w", program, method, err)
 			}
+			s.modifiers[codec.WrapItemType(true, program, method, "")] = inputMod
 
 			input, err := codec.CreateCodecEntry(idlDef, methodConfig.ChainSpecificName, idl, inputMod)
 			if err != nil {
@@ -257,6 +260,15 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 	}
 
 	encodedPayload, err := s.encoder.Encode(ctx, args, codec.WrapItemType(true, contractName, method, ""))
+
+	modifier, exists := s.modifiers[codec.WrapItemType(true, contractName, method, "")]
+	if exists {
+		// apply codec modifiers to args before doing address lookups
+		args, err = modifier.TransformToOnChain(args, "")
+		if err != nil {
+			return errorWithDebugID(fmt.Errorf("error transforming input args: %w", err), debugID)
+		}
+	}
 
 	if err != nil {
 		return errorWithDebugID(fmt.Errorf("error encoding transaction payload: %w", err), debugID)

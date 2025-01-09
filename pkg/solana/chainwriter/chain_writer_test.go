@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
@@ -429,7 +430,10 @@ func TestChainWriter_SubmitTransaction(t *testing.T) {
 			"contract_reader_interface": {
 				Methods: map[string]chainwriter.MethodConfig{
 					"initializeLookupTable": {
-						FromAddress:       admin.String(),
+						FromAddress: admin.String(),
+						InputModifications: commoncodec.ModifiersConfig{
+							&commoncodec.RenameModifierConfig{Fields: map[string]string{"LookupTable": "Lookup"}},
+						},
 						ChainSpecificName: "initializeLookupTable",
 						LookupTables: chainwriter.LookupTables{
 							DerivedLookupTables: []chainwriter.DerivedLookupTable{
@@ -557,10 +561,16 @@ func TestChainWriter_SubmitTransaction(t *testing.T) {
 			return true
 		}), &txID, mock.Anything).Return(nil).Once()
 
-		args := Arguments{
-			LookupTable: account2,
-			Seed1:       seed1,
-			Seed2:       seed2,
+		type ArgumentsOffChain struct {
+			Lookup solana.PublicKey
+			Seed1  []byte
+			Seed2  []byte
+		}
+
+		args := ArgumentsOffChain{
+			Lookup: account2,
+			Seed1:  seed1,
+			Seed2:  seed2,
 		}
 
 		submitErr := cw.SubmitTransaction(ctx, "contract_reader_interface", "initializeLookupTable", args, txID, programID.String(), nil, nil)

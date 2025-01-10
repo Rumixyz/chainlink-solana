@@ -162,6 +162,7 @@ func (c *EncodedLogCollector) close() error {
 
 func (c *EncodedLogCollector) runSlotPolling(ctx context.Context) {
 	for {
+		// TODO: fetch slots using getBlocksWithLimit RPC Method
 		timer := time.NewTimer(DefaultNextSlotPollingInterval)
 
 		select {
@@ -183,15 +184,16 @@ func (c *EncodedLogCollector) runSlotPolling(ctx context.Context) {
 
 			cancel()
 
+			slot := result.Context.Slot
 			// if the slot is not higher than the highest slot, skip it
-			if c.lastSentSlot.Load() >= result.Context.Slot {
+			if c.lastSentSlot.Load() >= slot {
 				continue
 			}
 
-			c.lastSentSlot.Store(result.Context.Slot)
-
 			select {
-			case c.chSlot <- result.Context.Slot:
+			case c.chSlot <- slot:
+				c.lggr.Debugw("Fetched new slot and sent it for processing", "slot", slot)
+				c.lastSentSlot.Store(slot)
 			default:
 			}
 		}
@@ -201,24 +203,28 @@ func (c *EncodedLogCollector) runSlotPolling(ctx context.Context) {
 }
 
 func (c *EncodedLogCollector) runSlotProcessing(ctx context.Context) {
+	start := uint64(0)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case slot := <-c.chSlot:
-			if c.highestSlot.Load() >= slot {
+		case end := <-c.chSlot:
+			if start >= end {
 				continue
 			}
 
-			from := c.highestSlot.Load() + 1
-			if c.highestSlot.Load() == 0 {
-				from = slot
+			if start == 0 {
+				start = end // TODO: should be loaded from db or passed into EncodedLogCollector as arg
+			}
+			// load blocks in slot range
+			if err := c.loadSlotBlocksRange(ctx, start, end); err != nil {
+				// a retry will happen anyway on the next round of slots
+				// so the error is handled by doing nothing
+				c.lggr.Errorw("failed to load slot blocks range", "start", start, "end", end, "err", err)
+				continue
 			}
 
-			c.highestSlot.Store(slot)
-
-			// load blocks in slot range
-			c.loadRange(ctx, from, slot)
+			start = end + 1
 		}
 	}
 }
@@ -252,18 +258,6 @@ func (c *EncodedLogCollector) runJobProcessing(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (c *EncodedLogCollector) loadRange(ctx context.Context, start, end uint64) {
-	if err := c.loadSlotBlocksRange(ctx, start, end); err != nil {
-		// a retry will happen anyway on the next round of slots
-		// so the error is handled by doing nothing
-		c.lggr.Errorw("failed to load slot blocks range", "start", start, "end", end, "err", err)
-
-		return
-	}
-
-	c.highestSlotLoaded.Store(end)
 }
 
 func (c *EncodedLogCollector) loadSlotBlocksRange(ctx context.Context, start, end uint64) error {

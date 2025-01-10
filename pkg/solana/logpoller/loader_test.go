@@ -19,7 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller"
-	mocks "github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller/mocks"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/logpoller/mocks"
 )
 
 var (
@@ -561,11 +561,11 @@ type testParser struct {
 	events []logpoller.ProgramEvent
 }
 
-func (p *testParser) Process(event logpoller.ProgramEvent) error {
+func (p *testParser) Process(block logpoller.Block) error {
 	p.called.Store(true)
 
 	p.mu.Lock()
-	p.events = append(p.events, event)
+	p.events = append(p.events, block.Events...)
 	p.mu.Unlock()
 
 	return nil

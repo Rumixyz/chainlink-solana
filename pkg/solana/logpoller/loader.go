@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -17,13 +16,19 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+type Block struct {
+	SlotNumber uint64
+	BlockHash  solana.Hash
+	Events     []ProgramEvent
+}
+
 type ProgramEventProcessor interface {
 	// Process should take a ProgramEvent and parseProgramLogs it based on log signature
 	// and expected encoding. Only return errors that cannot be handled and
 	// should exit further transaction processing on the running thread.
 	//
 	// Process should be thread safe.
-	Process(ProgramEvent) error
+	Process(Block) error
 }
 
 type RPCClient interface {
@@ -55,9 +60,7 @@ type EncodedLogCollector struct {
 	chJobs  chan Job
 	workers *WorkerGroup
 
-	highestSlot       atomic.Uint64
-	highestSlotLoaded atomic.Uint64
-	lastSentSlot      atomic.Uint64
+	lastSentSlot atomic.Uint64
 }
 
 func NewEncodedLogCollector(
@@ -280,6 +283,8 @@ func (c *EncodedLogCollector) loadSlotBlocksRange(ctx context.Context, start, en
 		return err
 	}
 
+	c.lggr.Debugw("loaded blocks for slots range", "start", start, "end", end, "blocks", len(result))
+
 	// as a safety mechanism, order the blocks ascending (oldest to newest) in the extreme case
 	// that the RPC changes and results get jumbled.
 	slices.SortFunc(result, func(a, b uint64) int {
@@ -315,8 +320,8 @@ func newUnorderedParser(parser ProgramEventProcessor) *unorderedParser {
 
 func (p *unorderedParser) ExpectBlock(_ uint64)      {}
 func (p *unorderedParser) ExpectTxs(_ uint64, _ int) {}
-func (p *unorderedParser) Process(evt ProgramEvent) error {
-	return p.parser.Process(evt)
+func (p *unorderedParser) Process(block Block) error {
+	return p.parser.Process(block)
 }
 
 type orderedParser struct {
@@ -328,16 +333,14 @@ type orderedParser struct {
 	parser ProgramEventProcessor
 	mu     sync.Mutex
 	blocks *list.List
-	expect map[uint64]int
-	actual map[uint64][]ProgramEvent
+	actual map[uint64]Block
 }
 
 func newOrderedParser(parser ProgramEventProcessor, lggr logger.Logger) *orderedParser {
 	op := &orderedParser{
 		parser: parser,
 		blocks: list.New(),
-		expect: make(map[uint64]int),
-		actual: make(map[uint64][]ProgramEvent),
+		actual: make(map[uint64]Block),
 	}
 
 	op.Service, op.engine = services.Config{
@@ -357,23 +360,11 @@ func (p *orderedParser) ExpectBlock(block uint64) {
 	p.blocks.PushBack(block)
 }
 
-func (p *orderedParser) ExpectTxs(block uint64, quantity int) {
+func (p *orderedParser) Process(block Block) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.expect[block] = quantity
-	p.actual[block] = make([]ProgramEvent, 0, quantity)
-}
-
-func (p *orderedParser) Process(event ProgramEvent) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.addToExpectations(event); err != nil {
-		// TODO: log error because this is an unrecoverable error
-		return nil
-	}
-
+	p.actual[block.SlotNumber] = block
 	return p.sendReadySlots()
 }
 
@@ -387,41 +378,6 @@ func (p *orderedParser) close() error {
 	return nil
 }
 
-func (p *orderedParser) addToExpectations(evt ProgramEvent) error {
-	_, ok := p.expect[evt.SlotNumber]
-	if !ok {
-		return fmt.Errorf("%w: %d", errExpectationsNotSet, evt.SlotNumber)
-	}
-
-	evts, ok := p.actual[evt.SlotNumber]
-	if !ok {
-		return fmt.Errorf("%w: %d", errExpectationsNotSet, evt.SlotNumber)
-	}
-
-	p.actual[evt.SlotNumber] = append(evts, evt)
-
-	return nil
-}
-
-func (p *orderedParser) expectations(block uint64) (int, bool, error) {
-	expectations, ok := p.expect[block]
-	if !ok {
-		return 0, false, fmt.Errorf("%w: %d", errExpectationsNotSet, block)
-	}
-
-	evts, ok := p.actual[block]
-	if !ok {
-		return 0, false, fmt.Errorf("%w: %d", errExpectationsNotSet, block)
-	}
-
-	return expectations, expectations == len(evts), nil
-}
-
-func (p *orderedParser) clearExpectations(block uint64) {
-	delete(p.expect, block)
-	delete(p.actual, block)
-}
-
 func (p *orderedParser) run(_ context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -432,46 +388,20 @@ func (p *orderedParser) run(_ context.Context) {
 func (p *orderedParser) sendReadySlots() error {
 	// start at the lowest block and find ready blocks
 	for element := p.blocks.Front(); element != nil; element = p.blocks.Front() {
-		block := element.Value.(uint64)
-		// if no expectations are set, we are still waiting on information for the block.
-		// if expectations set and not met, we are still waiting on information for the block
-		// no other block data should be sent until this is resolved
-		exp, met, err := p.expectations(block)
-		if err != nil || !met {
-			break
-		}
-
-		// if expectations are 0 -> remove and continue
-		if exp == 0 {
-			p.clearExpectations(block)
-			p.blocks.Remove(element)
-
-			continue
-		}
-
-		evts, ok := p.actual[block]
+		slotNumber := element.Value.(uint64)
+		block, ok := p.actual[slotNumber]
 		if !ok {
-			return errInvalidState
+			// we have not fetched transactions for the block yet, try on next iteration
+			return nil
 		}
 
-		var errs error
-		for _, evt := range evts {
-			errs = errors.Join(errs, p.parser.Process(evt))
-		}
-
-		// need possible retry
-		if errs != nil {
-			return errs
+		err := p.parser.Process(block)
+		if err != nil {
+			return err
 		}
 
 		p.blocks.Remove(element)
-		p.clearExpectations(block)
 	}
 
 	return nil
 }
-
-var (
-	errExpectationsNotSet = errors.New("expectations not set")
-	errInvalidState       = errors.New("invalid state")
-)

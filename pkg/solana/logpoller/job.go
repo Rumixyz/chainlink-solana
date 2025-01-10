@@ -40,25 +40,9 @@ type eventDetail struct {
 	trxSig      solana.Signature
 }
 
-// processEventJob is a job that processes a single event. The parser should be a pure function
-// such that no network requests are made and no side effects are produced.
-type processEventJob struct {
-	parser ProgramEventProcessor
-	event  ProgramEvent
-}
-
-func (j *processEventJob) String() string {
-	return "processEventJob"
-}
-
-func (j *processEventJob) Run(_ context.Context) error {
-	return j.parser.Process(j.event)
-}
-
 type wrappedParser interface {
 	ProgramEventProcessor
 	ExpectBlock(uint64)
-	ExpectTxs(uint64, int)
 }
 
 // getTransactionsFromBlockJob is a job that fetches transaction signatures from a block and loads
@@ -122,24 +106,31 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 		return fmt.Errorf("block %d has %d transactions but %d signatures", j.slotNumber, len(block.Transactions), len(blockSigsOnly.Signatures))
 	}
 
-	j.parser.ExpectTxs(j.slotNumber, len(block.Transactions))
-
+	events := make([]ProgramEvent, 0, len(block.Transactions))
 	for idx, trx := range block.Transactions {
 		detail.trxIdx = idx
 		if len(blockSigsOnly.Signatures)-1 <= idx {
 			detail.trxSig = blockSigsOnly.Signatures[idx]
 		}
 
-		messagesToEvents(trx.Meta.LogMessages, j.parser, detail, j.chJobs)
+		txEvents := j.messagesToEvents(trx.Meta.LogMessages, detail)
+		events = append(events, txEvents...)
 	}
 
-	return nil
+	return j.parser.Process(Block{
+		SlotNumber: j.slotNumber,
+		BlockHash:  block.Blockhash,
+		Events:     events,
+	})
 }
 
-func messagesToEvents(messages []string, parser ProgramEventProcessor, detail eventDetail, chJobs chan Job) {
+func (j *getTransactionsFromBlockJob) messagesToEvents(messages []string, detail eventDetail) []ProgramEvent {
+	// TODO: changes to parsing might cause changes in logIdx generate, we might want to find a more stable way of doing it.
 	var logIdx uint
+	// TODO: only parse logs produced by CL contracts, otherwise if we enable custom user calls, it will be possible to forge a msg.
+	events := make([]ProgramEvent, 0, len(messages))
 	for _, outputs := range parseProgramLogs(messages) {
-		for _, event := range outputs.Events {
+		for i, event := range outputs.Events {
 			event.SlotNumber = detail.slotNumber
 			event.BlockHeight = detail.blockHeight
 			event.BlockHash = detail.blockHash
@@ -148,11 +139,11 @@ func messagesToEvents(messages []string, parser ProgramEventProcessor, detail ev
 			event.TransactionLogIndex = logIdx
 
 			logIdx++
-
-			chJobs <- &processEventJob{
-				parser: parser,
-				event:  event,
-			}
+			outputs.Events[i] = event
 		}
+
+		events = append(events, outputs.Events...)
 	}
+
+	return events
 }

@@ -143,26 +143,28 @@ type printParser struct {
 	values []uint64
 }
 
-func (p *printParser) Process(evt logpoller.ProgramEvent) error {
+func (p *printParser) Process(block logpoller.Block) error {
 	p.t.Helper()
-
-	data, err := base64.StdEncoding.DecodeString(evt.Data)
-	if err != nil {
-		return err
-	}
 
 	sum := sha256.Sum256([]byte("event:TestEvent"))
 	sig := sum[:8]
 
-	if bytes.Equal(sig, data[:8]) {
-		var event testEvent
-		if err := bin.UnmarshalBorsh(&event, data[8:]); err != nil {
-			return nil
+	for _, evt := range block.Events {
+		data, err := base64.StdEncoding.DecodeString(evt.Data)
+		if err != nil {
+			return err
 		}
 
-		p.mu.Lock()
-		p.values = append(p.values, event.U64Value)
-		p.mu.Unlock()
+		if bytes.Equal(sig, data[:8]) {
+			var event testEvent
+			if err := bin.UnmarshalBorsh(&event, data[8:]); err != nil {
+				return nil
+			}
+
+			p.mu.Lock()
+			p.values = append(p.values, event.U64Value)
+			p.mu.Unlock()
+		}
 	}
 
 	return nil

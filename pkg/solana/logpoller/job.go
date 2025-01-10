@@ -61,6 +61,7 @@ func (j *getTransactionsFromBlockJob) String() string {
 func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 	var excludeRewards bool
 
+	version := uint64(0) // pull all tx types (legacy + v0)
 	block, err := j.client.GetBlockWithOpts(
 		ctx,
 		j.slotNumber,
@@ -68,7 +69,8 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 			Encoding:   solana.EncodingBase64,
 			Commitment: rpc.CommitmentFinalized,
 			// get the full transaction details
-			TransactionDetails: rpc.TransactionDetailsFull,
+			TransactionDetails:             rpc.TransactionDetailsFull,
+			MaxSupportedTransactionVersion: &version,
 			// exclude rewards
 			Rewards: &excludeRewards,
 		},
@@ -84,7 +86,9 @@ func (j *getTransactionsFromBlockJob) Run(ctx context.Context) error {
 			Encoding:   solana.EncodingBase64,
 			Commitment: rpc.CommitmentFinalized,
 			// get the signatures only
-			TransactionDetails: rpc.TransactionDetailsSignatures,
+			TransactionDetails:             rpc.TransactionDetailsSignatures,
+			MaxSupportedTransactionVersion: &version,
+
 			// exclude rewards
 			Rewards: &excludeRewards,
 		},

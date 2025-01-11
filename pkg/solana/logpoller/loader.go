@@ -1,10 +1,11 @@
 package logpoller
 
 import (
-	"container/list"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,7 +50,7 @@ type EncodedLogCollector struct {
 
 	// dependencies and configuration
 	client       RPCClient
-	ordered      *orderedParser
+	ordered      *blocksSorter
 	unordered    *unorderedParser
 	lggr         logger.Logger
 	rpcTimeLimit time.Duration
@@ -82,7 +83,7 @@ func NewEncodedLogCollector(
 		Name: "EncodedLogCollector",
 		NewSubServices: func(lggr logger.Logger) []services.Service {
 			c.workers = NewWorkerGroup(DefaultWorkerCount, lggr)
-			c.ordered = newOrderedParser(parser, lggr)
+			c.ordered = newBlocksSorter(lggr)
 
 			return []services.Service{c.workers, c.ordered}
 		},
@@ -93,58 +94,91 @@ func NewEncodedLogCollector(
 	return c
 }
 
-func (c *EncodedLogCollector) BackfillForAddress(ctx context.Context, address string, fromSlot uint64) error {
-	pubKey, err := solana.PublicKeyFromBase58(address)
-	if err != nil {
-		return err
+func (c *EncodedLogCollector) getSlotsToFetch(ctx context.Context, addresses []PublicKey, fromSlot, toSlot uint64) ([]uint64, error) {
+	// identify slots to fetch
+	slotsForAddressJobs := make([]*getSlotsForAddressJob, len(addresses))
+	slotsToFetch := make(map[uint64]struct{}, toSlot-fromSlot)
+	var slotsToFetchMu sync.Mutex
+	storeSlot := func(slot uint64) {
+		slotsToFetchMu.Lock()
+		slotsToFetch[slot] = struct{}{}
+		slotsToFetchMu.Unlock()
+	}
+	for i, address := range addresses {
+		slotsForAddressJobs[i] = newGetSlotsForAddress(c.client, c.workers, storeSlot, address, fromSlot, toSlot)
+		err := c.workers.Do(ctx, slotsForAddressJobs[i])
+		if err != nil {
+			return nil, fmt.Errorf("could not shedule job to fetch slots for address: %w", err)
+		}
 	}
 
-	var (
-		lowestSlotRead uint64
-		lowestSlotSig  solana.Signature
-	)
-
-	for lowestSlotRead > fromSlot || lowestSlotRead == 0 {
-		opts := rpc.GetSignaturesForAddressOpts{
-			Commitment:     rpc.CommitmentFinalized,
-			MinContextSlot: &fromSlot,
+	for _, job := range slotsForAddressJobs {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-job.Done():
 		}
+	}
 
-		if lowestSlotRead > 0 {
-			opts.Before = lowestSlotSig
-		}
+	// it should be safe to access slotsToFetch without lock as all the jobs signalled that they are done
+	result := make([]uint64, 0, len(slotsToFetch))
+	for slot := range slotsToFetch {
+		result = append(result, slot)
+	}
 
-		sigs, err := c.client.GetSignaturesForAddressWithOpts(ctx, pubKey, &opts)
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result, nil
+}
+
+func (c *EncodedLogCollector) scheduleBlocksFetching(ctx context.Context, slots []uint64) (<-chan Block, error) {
+	blocks := make(chan Block)
+	getBlocksJobs := make([]*getBlockJob, len(slots))
+	for i, slot := range slots {
+		getBlocksJobs[i] = newGetBlockJob(c.client, blocks, slot)
+		err := c.workers.Do(ctx, getBlocksJobs[i])
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("could not schedule job to fetch blocks for slot: %w", err)
 		}
+	}
 
-		if len(sigs) == 0 {
-			break
-		}
-
-		// signatures ordered from newest to oldest, defined in the Solana RPC docs
-		for _, sig := range sigs {
-			lowestSlotSig = sig.Signature
-
-			if sig.Slot >= lowestSlotRead && lowestSlotRead != 0 {
+	go func() {
+		for _, job := range getBlocksJobs {
+			select {
+			case <-ctx.Done():
+				return
+			case <-job.Done():
 				continue
 			}
-
-			lowestSlotRead = sig.Slot
-
-			if err := c.workers.Do(ctx, &getTransactionsFromBlockJob{
-				slotNumber: sig.Slot,
-				client:     c.client,
-				parser:     c.unordered,
-				chJobs:     c.chJobs,
-			}); err != nil {
-				return err
-			}
 		}
+		close(blocks)
+	}()
+
+	return blocks, nil
+}
+
+func (c *EncodedLogCollector) BackfillForAddresses(ctx context.Context, addresses []PublicKey, fromSlot, toSlot uint64) (<-chan Block, error) {
+	slotsToFetch, err := c.getSlotsToFetch(ctx, addresses, fromSlot, toSlot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify slots to fetch: %w", err)
 	}
 
-	return nil
+	unorderedBlocks, err := c.scheduleBlocksFetching(ctx, slotsToFetch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to schedule blocks to fetch: %w", err)
+	}
+	blocksSorter, sortedBlocks := newBlocksSorter(unorderedBlocks, c.lggr)
+	err = blocksSorter.Start(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start blocks sorter: %w", err)
+	}
+	defer func() {
+		err = blocksSorter.Close()
+		if err != nil {
+			c.lggr.Error(fmt.Errorf("failed to close blocks sorter: %w", err))
+		}
+	}()
+
+	return sortedBlocks, nil
 }
 
 func (c *EncodedLogCollector) start(_ context.Context) error {
@@ -235,7 +269,7 @@ func (c *EncodedLogCollector) runBlockProcessing(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case slot := <-c.chBlock:
-			if err := c.workers.Do(ctx, &getTransactionsFromBlockJob{
+			if err := c.workers.Do(ctx, &getBlockJob{
 				slotNumber: slot,
 				client:     c.client,
 				parser:     c.ordered,
@@ -316,86 +350,4 @@ func (p *unorderedParser) ExpectBlock(_ uint64)      {}
 func (p *unorderedParser) ExpectTxs(_ uint64, _ int) {}
 func (p *unorderedParser) Process(block Block) error {
 	return p.parser.Process(block)
-}
-
-type orderedParser struct {
-	// service state management
-	services.Service
-	engine *services.Engine
-
-	// internal state
-	parser ProgramEventProcessor
-	mu     sync.Mutex
-	blocks *list.List
-	actual map[uint64]Block
-}
-
-func newOrderedParser(parser ProgramEventProcessor, lggr logger.Logger) *orderedParser {
-	op := &orderedParser{
-		parser: parser,
-		blocks: list.New(),
-		actual: make(map[uint64]Block),
-	}
-
-	op.Service, op.engine = services.Config{
-		Name:  "OrderedParser",
-		Start: op.start,
-		Close: op.close,
-	}.NewServiceEngine(lggr)
-
-	return op
-}
-
-// ExpectBlock should be called in block order to preserve block progression.
-func (p *orderedParser) ExpectBlock(block uint64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.blocks.PushBack(block)
-}
-
-func (p *orderedParser) Process(block Block) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.actual[block.SlotNumber] = block
-	return p.sendReadySlots()
-}
-
-func (p *orderedParser) start(_ context.Context) error {
-	p.engine.GoTick(services.NewTicker(time.Second), p.run)
-
-	return nil
-}
-
-func (p *orderedParser) close() error {
-	return nil
-}
-
-func (p *orderedParser) run(_ context.Context) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	_ = p.sendReadySlots()
-}
-
-func (p *orderedParser) sendReadySlots() error {
-	// start at the lowest block and find ready blocks
-	for element := p.blocks.Front(); element != nil; element = p.blocks.Front() {
-		slotNumber := element.Value.(uint64)
-		block, ok := p.actual[slotNumber]
-		if !ok {
-			// we have not fetched transactions for the block yet, try on next iteration
-			return nil
-		}
-
-		err := p.parser.Process(block)
-		if err != nil {
-			return err
-		}
-
-		p.blocks.Remove(element)
-	}
-
-	return nil
 }

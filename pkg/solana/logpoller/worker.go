@@ -38,10 +38,14 @@ type worker struct {
 
 func (w *worker) Do(ctx context.Context, job Job) {
 	if ctx.Err() == nil {
+		start := time.Now()
+		w.Lggr.Debugf("Starting job %s", job.String())
 		if err := job.Run(ctx); err != nil {
 			w.Lggr.Errorf("job %s failed with error; retrying: %s", job, err)
 			w.Retry <- job
 		}
+		// TODO: add prom metric
+		w.Lggr.Debugf("Finished job %s in %s", job.String(), time.Since(start))
 	}
 
 	// put itself back on the queue when done

@@ -30,6 +30,7 @@ func newGetSlotsForAddress(client RPCClient, workers *WorkerGroup, storeSlot fun
 		to:        to,
 		storeSlot: storeSlot,
 		workers:   workers,
+		done:      make(chan struct{}),
 	}
 }
 
@@ -84,6 +85,9 @@ func (f *getSlotsForAddressJob) run(ctx context.Context) (bool, error) {
 			continue
 		}
 
+		// TODO: ignore slots that are higher than to
+
+		lowestSlot = sig.Slot
 		f.storeSlot(sig.Slot)
 		if sig.Slot <= f.from {
 			return true, nil

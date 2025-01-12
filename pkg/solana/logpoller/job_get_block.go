@@ -66,9 +66,9 @@ func (j *getBlockJob) Run(ctx context.Context) error {
 	events := make([]ProgramEvent, 0, len(block.Transactions))
 	for idx, txWithMeta := range block.Transactions {
 		detail.trxIdx = idx
-		tx, err := txWithMeta.GetParsedTransaction()
+		tx, err := txWithMeta.GetTransaction()
 		if err != nil {
-			return fmt.Errorf("parsing transaction %d in slot %d: %w", idx, txWithMeta.Slot, err)
+			return fmt.Errorf("failed to parse transaction %d in slot %d: %w", idx, txWithMeta.Slot, err)
 		}
 		if len(tx.Signatures) == 0 {
 			return fmt.Errorf("expected all transactions to have at least one signature %d in slot %d", idx, txWithMeta.Slot)

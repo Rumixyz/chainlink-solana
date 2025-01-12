@@ -2,9 +2,7 @@ package logpoller
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -50,8 +48,6 @@ type EncodedLogCollector struct {
 
 	// dependencies and configuration
 	client       RPCClient
-	ordered      *blocksSorter
-	unordered    *unorderedParser
 	lggr         logger.Logger
 	rpcTimeLimit time.Duration
 
@@ -66,12 +62,10 @@ type EncodedLogCollector struct {
 
 func NewEncodedLogCollector(
 	client RPCClient,
-	parser ProgramEventProcessor,
 	lggr logger.Logger,
 ) *EncodedLogCollector {
 	c := &EncodedLogCollector{
 		client:       client,
-		unordered:    newUnorderedParser(parser),
 		chSlot:       make(chan uint64),
 		chBlock:      make(chan uint64, 1),
 		chJobs:       make(chan Job, 1),
@@ -83,9 +77,8 @@ func NewEncodedLogCollector(
 		Name: "EncodedLogCollector",
 		NewSubServices: func(lggr logger.Logger) []services.Service {
 			c.workers = NewWorkerGroup(DefaultWorkerCount, lggr)
-			c.ordered = newBlocksSorter(lggr)
 
-			return []services.Service{c.workers, c.ordered}
+			return []services.Service{c.workers}
 		},
 		Start: c.start,
 		Close: c.close,
@@ -156,36 +149,37 @@ func (c *EncodedLogCollector) scheduleBlocksFetching(ctx context.Context, slots 
 	return blocks, nil
 }
 
-func (c *EncodedLogCollector) BackfillForAddresses(ctx context.Context, addresses []PublicKey, fromSlot, toSlot uint64) (<-chan Block, error) {
+func (c *EncodedLogCollector) BackfillForAddresses(ctx context.Context, addresses []PublicKey, fromSlot, toSlot uint64) (orderedBlocks <-chan Block, cleanUp func(), err error) {
 	slotsToFetch, err := c.getSlotsToFetch(ctx, addresses, fromSlot, toSlot)
 	if err != nil {
-		return nil, fmt.Errorf("failed to identify slots to fetch: %w", err)
+		return nil, func() {}, fmt.Errorf("failed to identify slots to fetch: %w", err)
 	}
+
+	c.lggr.Debugw("Got all slots that need fetching for backfill operations", "addresses", PublicKeysToString(addresses), "fromSlot", fromSlot, "toSlot", toSlot, "slotsToFetch", slotsToFetch)
 
 	unorderedBlocks, err := c.scheduleBlocksFetching(ctx, slotsToFetch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to schedule blocks to fetch: %w", err)
+		return nil, func() {}, fmt.Errorf("failed to schedule blocks to fetch: %w", err)
 	}
-	blocksSorter, sortedBlocks := newBlocksSorter(unorderedBlocks, c.lggr)
+	blocksSorter, sortedBlocks := newBlocksSorter(unorderedBlocks, c.lggr, slotsToFetch)
 	err = blocksSorter.Start(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start blocks sorter: %w", err)
+		return nil, func() {}, fmt.Errorf("failed to start blocks sorter: %w", err)
 	}
-	defer func() {
-		err = blocksSorter.Close()
-		if err != nil {
-			c.lggr.Error(fmt.Errorf("failed to close blocks sorter: %w", err))
-		}
-	}()
 
-	return sortedBlocks, nil
+	cleanUp = func() {
+		err := blocksSorter.Close()
+		if err != nil {
+			blocksSorter.lggr.Errorw("Failed to close blocks sorter", "err", err)
+		}
+	}
+
+	return sortedBlocks, cleanUp, nil
 }
 
 func (c *EncodedLogCollector) start(_ context.Context) error {
-	c.engine.Go(c.runSlotPolling)
-	c.engine.Go(c.runSlotProcessing)
-	c.engine.Go(c.runBlockProcessing)
-	c.engine.Go(c.runJobProcessing)
+	//c.engine.Go(c.runSlotPolling)
+	//c.engine.Go(c.runJobProcessing)
 
 	return nil
 }
@@ -236,50 +230,50 @@ func (c *EncodedLogCollector) runSlotPolling(ctx context.Context) {
 	}
 }
 
-func (c *EncodedLogCollector) runSlotProcessing(ctx context.Context) {
-	start := uint64(0)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case end := <-c.chSlot:
-			if start >= end {
-				continue
-			}
+//func (c *EncodedLogCollector) runSlotProcessing(ctx context.Context) {
+//	start := uint64(0)
+//	for {
+//		select {
+//		case <-ctx.Done():
+//			return
+//		case end := <-c.chSlot:
+//			if start >= end {
+//				continue
+//			}
+//
+//			if start == 0 {
+//				start = end // TODO: should be loaded from db or passed into EncodedLogCollector as arg
+//			}
+//			// load blocks in slot range
+//			if err := c.loadSlotBlocksRange(ctx, start, end); err != nil {
+//				// a retry will happen anyway on the next round of slots
+//				// so the error is handled by doing nothing
+//				c.lggr.Errorw("failed to load slot blocks range", "start", start, "end", end, "err", err)
+//				continue
+//			}
+//
+//			start = end + 1
+//		}
+//	}
+//}
 
-			if start == 0 {
-				start = end // TODO: should be loaded from db or passed into EncodedLogCollector as arg
-			}
-			// load blocks in slot range
-			if err := c.loadSlotBlocksRange(ctx, start, end); err != nil {
-				// a retry will happen anyway on the next round of slots
-				// so the error is handled by doing nothing
-				c.lggr.Errorw("failed to load slot blocks range", "start", start, "end", end, "err", err)
-				continue
-			}
-
-			start = end + 1
-		}
-	}
-}
-
-func (c *EncodedLogCollector) runBlockProcessing(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case slot := <-c.chBlock:
-			if err := c.workers.Do(ctx, &getBlockJob{
-				slotNumber: slot,
-				client:     c.client,
-				parser:     c.ordered,
-				chJobs:     c.chJobs,
-			}); err != nil {
-				c.lggr.Errorf("failed to add job to queue: %s", err)
-			}
-		}
-	}
-}
+//func (c *EncodedLogCollector) runBlockProcessing(ctx context.Context) {
+//	for {
+//		select {
+//		case <-ctx.Done():
+//			return
+//		case slot := <-c.chBlock:
+//			if err := c.workers.Do(ctx, &getBlockJob{
+//				slotNumber: slot,
+//				client:     c.client,
+//				parser:     c.ordered,
+//				chJobs:     c.chJobs,
+//			}); err != nil {
+//				c.lggr.Errorf("failed to add job to queue: %s", err)
+//			}
+//		}
+//	}
+//}
 
 func (c *EncodedLogCollector) runJobProcessing(ctx context.Context) {
 	for {
@@ -294,49 +288,49 @@ func (c *EncodedLogCollector) runJobProcessing(ctx context.Context) {
 	}
 }
 
-func (c *EncodedLogCollector) loadSlotBlocksRange(ctx context.Context, start, end uint64) error {
-	if start >= end {
-		return errors.New("the start block must come before the end block")
-	}
-
-	var (
-		result rpc.BlocksResult
-		err    error
-	)
-
-	rpcCtx, cancel := context.WithTimeout(ctx, c.rpcTimeLimit)
-	defer cancel()
-
-	if result, err = c.client.GetBlocks(rpcCtx, start, &end, rpc.CommitmentFinalized); err != nil {
-		return err
-	}
-
-	c.lggr.Debugw("loaded blocks for slots range", "start", start, "end", end, "blocks", len(result))
-
-	// as a safety mechanism, order the blocks ascending (oldest to newest) in the extreme case
-	// that the RPC changes and results get jumbled.
-	slices.SortFunc(result, func(a, b uint64) int {
-		if a < b {
-			return -1
-		} else if a > b {
-			return 1
-		}
-
-		return 0
-	})
-
-	for _, block := range result {
-		c.ordered.ExpectBlock(block)
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case c.chBlock <- block:
-		}
-	}
-
-	return nil
-}
+//func (c *EncodedLogCollector) loadSlotBlocksRange(ctx context.Context, start, end uint64) error {
+//	if start >= end {
+//		return errors.New("the start block must come before the end block")
+//	}
+//
+//	var (
+//		result rpc.BlocksResult
+//		err    error
+//	)
+//
+//	rpcCtx, cancel := context.WithTimeout(ctx, c.rpcTimeLimit)
+//	defer cancel()
+//
+//	if result, err = c.client.GetBlocks(rpcCtx, start, &end, rpc.CommitmentFinalized); err != nil {
+//		return err
+//	}
+//
+//	c.lggr.Debugw("loaded blocks for slots range", "start", start, "end", end, "blocks", len(result))
+//
+//	// as a safety mechanism, order the blocks ascending (oldest to newest) in the extreme case
+//	// that the RPC changes and results get jumbled.
+//	slices.SortFunc(result, func(a, b uint64) int {
+//		if a < b {
+//			return -1
+//		} else if a > b {
+//			return 1
+//		}
+//
+//		return 0
+//	})
+//
+//	for _, block := range result {
+//		c.ordered.ExpectBlock(block)
+//
+//		select {
+//		case <-ctx.Done():
+//			return nil
+//		case c.chBlock <- block:
+//		}
+//	}
+//
+//	return nil
+//}
 
 type unorderedParser struct {
 	parser ProgramEventProcessor

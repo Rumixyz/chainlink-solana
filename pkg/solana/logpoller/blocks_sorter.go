@@ -27,7 +27,7 @@ type blocksSorter struct {
 	readyBlocks map[uint64]Block
 }
 
-func newBlocksSorter(inBlocks <-chan Block, lggr logger.Logger) (*blocksSorter, <-chan Block) {
+func newBlocksSorter(inBlocks <-chan Block, lggr logger.Logger, expectedBlocks []uint64) (*blocksSorter, <-chan Block) {
 	op := &blocksSorter{
 		queue:            list.New(),
 		readyBlocks:      make(map[uint64]Block),
@@ -35,6 +35,10 @@ func newBlocksSorter(inBlocks <-chan Block, lggr logger.Logger) (*blocksSorter, 
 		outBlocks:        make(chan Block),
 		receivedNewBlock: make(chan struct{}, 1),
 		lggr:             lggr,
+	}
+
+	for _, b := range expectedBlocks {
+		op.queue.PushBack(b)
 	}
 
 	op.Service, op.engine = services.Config{

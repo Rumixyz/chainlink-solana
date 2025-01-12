@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/gagliardetto/solana-go"
 )
@@ -23,6 +24,23 @@ func (k PublicKey) Value() (driver.Value, error) {
 
 func (k PublicKey) ToSolana() solana.PublicKey {
 	return solana.PublicKey(k)
+}
+
+func (k PublicKey) String() string {
+	return k.ToSolana().String()
+}
+
+func PublicKeysToString(keys []PublicKey) string {
+	var buf strings.Builder
+	buf.WriteString("[")
+	for i, key := range keys {
+		if i > 0 {
+			buf.WriteString(",")
+		}
+		buf.WriteString(key.String())
+	}
+	buf.WriteString("]")
+	return buf.String()
 }
 
 type Hash solana.Hash

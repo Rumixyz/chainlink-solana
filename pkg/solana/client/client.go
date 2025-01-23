@@ -44,6 +44,8 @@ type Reader interface {
 	GetBlockWithOpts(context.Context, uint64, *rpc.GetBlockOpts) (*rpc.GetBlockResult, error)
 	GetBlock(ctx context.Context, slot uint64) (*rpc.GetBlockResult, error)
 	GetSignaturesForAddressWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error)
+	GetProgramAccountsWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error)
+	GetProgramAccountsBySeed(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58) (rpc.GetProgramAccountsResult, error)
 }
 
 // AccountReader is an interface that allows users to pass either the solana rpc client or the relay client
@@ -388,4 +390,31 @@ func (c *Client) GetBlocksWithLimit(ctx context.Context, startSlot uint64, limit
 		return c.rpc.GetBlocksWithLimit(ctx, startSlot, limit, c.commitment)
 	})
 	return v.(*rpc.BlocksResult), err
+}
+
+func (c *Client) GetProgramAccountsWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error) {
+	done := c.latency("get_program_accounts")
+	defer done()
+
+	ctx, cancel := context.WithTimeout(ctx, c.txTimeout)
+	defer cancel()
+
+	return c.rpc.GetProgramAccountsWithOpts(ctx, addr, opts)
+}
+
+// Fetch a list of PDA's for a program, filtered by a particular seed at a specific seedOffset
+func (c *Client) GetProgramAccountsBySeed(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58) (rpc.GetProgramAccountsResult, error) {
+	opts := rpc.GetProgramAccountsOpts{
+		Commitment: c.commitment,
+		Encoding:   solana.EncodingBase64,
+		Filters: []rpc.RPCFilter{{
+			Memcmp: &rpc.RPCFilterMemcmp{Offset: seedOffset, Bytes: seed},
+		}},
+	}
+
+	key := fmt.Sprintf("GetProgarmAccounts(%d, %s", seedOffset, seed.String())
+	v, err, _ := c.requestGroup.Do(key, func() (interface{}, error) {
+		return c.GetProgramAccountsWithOpts(ctx, addr, &opts)
+	})
+	return v.(rpc.GetProgramAccountsResult), err
 }

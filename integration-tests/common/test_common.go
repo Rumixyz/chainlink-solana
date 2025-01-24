@@ -117,7 +117,7 @@ func (m *OCRv2TestState) DeployCluster(contractsDir string) {
 		m.Common.ChainDetails.RPCURLExternal = m.Common.Env.URLs["sol"][0]
 		m.Common.ChainDetails.WSURLExternal = m.Common.Env.URLs["sol"][1]
 
-		if *m.Config.TestConfig.Common.Network == "devnet" {
+		if *m.Config.TestConfig.Common.Network == "devnet" || *m.Config.TestConfig.Common.Network == "mainnet"{
 			m.Common.ChainDetails.RPCUrls = *m.Config.TestConfig.Common.RPCURLs
 			m.Common.ChainDetails.RPCURLExternal = (*m.Config.TestConfig.Common.RPCURLs)[0]
 			m.Common.ChainDetails.WSURLExternal = (*m.Config.TestConfig.Common.WsURLs)[0]
@@ -137,7 +137,7 @@ func (m *OCRv2TestState) DeployCluster(contractsDir string) {
 		m.Common.ChainDetails.RPCURLExternal = sol.ExternalHTTPURL
 		m.Common.ChainDetails.WSURLExternal = sol.ExternalWsURL
 
-		if *m.Config.TestConfig.Common.Network == "devnet" {
+		if *m.Config.TestConfig.Common.Network == "devnet" || *m.Config.TestConfig.Common.Network == "mainnet" {
 			m.Common.ChainDetails.RPCUrls = *m.Config.TestConfig.Common.RPCURLs
 			m.Common.ChainDetails.RPCURLExternal = (*m.Config.TestConfig.Common.RPCURLs)[0]
 			m.Common.ChainDetails.WSURLExternal = (*m.Config.TestConfig.Common.WsURLs)[0]

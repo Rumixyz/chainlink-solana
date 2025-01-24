@@ -15,6 +15,16 @@ type ProgramAddresses struct {
 	Store            string
 }
 
+func MainnetConfig() *Config {
+	return &Config{
+		ChainName: "solana",
+		ChainID:   "mainnet",
+		// Will be overridden if set in toml
+		RPCUrls: []string{"https://api.mainnet-beta.solana.com"},
+		WSUrls:  []string{"wss://api.mainnet-beta.solana.com"},
+	}
+}
+
 func DevnetConfig() *Config {
 	return &Config{
 		ChainName: "solana",

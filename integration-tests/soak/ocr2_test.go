@@ -93,7 +93,7 @@ func TestSolanaOCRV2Soak(t *testing.T) {
 			err = sg.InstallDependencies()
 			require.NoError(t, err, "Error installing gauntlet dependencies")
 
-			if *config.Common.Network == "devnet" {
+			if *config.Common.Network == "devnet" || *config.Common.Network == "mainnet" {
 				state.Common.ChainDetails.ProgramAddresses.OCR2 = *config.SolanaConfig.OCR2ProgramID
 				state.Common.ChainDetails.ProgramAddresses.AccessController = *config.SolanaConfig.AccessControllerProgramID
 				state.Common.ChainDetails.ProgramAddresses.Store = *config.SolanaConfig.StoreProgramID

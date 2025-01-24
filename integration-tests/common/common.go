@@ -112,8 +112,15 @@ func New(testConfig *tc.TestConfig) *Common {
 	privateKeyString := fmt.Sprintf("[%s]", formatBuffer([]byte(privateKey)))
 	publicKey := privateKey.PublicKey().String()
 
+	if *testConfig.Common.Network == "mainnet" {
+		config = chainConfig.MainnetConfig()
+	}
+
 	if *testConfig.Common.Network == "devnet" {
 		config = chainConfig.DevnetConfig()
+	}
+
+	if *testConfig.Common.Network == "devnet" || *testConfig.Common.Network == "mainnet" {
 		privateKeyString = *testConfig.Common.PrivateKey
 
 		if len(*testConfig.Common.RPCURLs) > 0 {

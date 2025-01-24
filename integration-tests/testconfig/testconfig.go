@@ -422,7 +422,7 @@ func (c *Common) Validate() error {
 		if c.DevnetImage == nil {
 			return fmt.Errorf("devnet_image must be set")
 		}
-	case "devnet":
+	case "devnet", "mainnet":
 		if c.PrivateKey == nil {
 			return fmt.Errorf("private_key must be set")
 		}
@@ -434,7 +434,7 @@ func (c *Common) Validate() error {
 		}
 
 	default:
-		return fmt.Errorf("network must be either 'localnet' or 'devnet'")
+		return fmt.Errorf("network must be either 'localnet', 'devnet', or 'mainnet'")
 	}
 
 	if c.InsideK8s == nil {

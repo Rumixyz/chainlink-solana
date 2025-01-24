@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -30,25 +28,27 @@ type SolanaChainReaderService struct {
 	client MultipleAccountGetter
 
 	// internal values
-	bindings namespaceBindings
-	lookup   *lookup
-	parsed   *codec.ParsedTypes
-	codec    types.RemoteCodec
+	bindings   namespaceBindings
+	lookup     *lookup
+	parsed     *codec.ParsedTypes
+	codec      types.RemoteCodec
+	pdaIndexer PDAIndexer
 
 	// service state management
-	wg sync.WaitGroup
-	services.StateMachine
+	services.Service
+	*services.Engine
 }
 
-var (
-	_ services.Service     = &SolanaChainReaderService{}
-	_ types.ContractReader = &SolanaChainReaderService{}
-)
+type PDAIndexer interface {
+	services.Service
+	GetAccount(addr solana.PublicKey, seed solana.PublicKey, offset uint64)
+}
+
+var _ types.ContractReader = &SolanaChainReaderService{}
 
 // NewChainReaderService is a constructor for a new ChainReaderService for Solana. Returns a nil service on error.
 func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter, cfg config.ContractReader) (*SolanaChainReaderService, error) {
 	svc := &SolanaChainReaderService{
-		lggr:     logger.Named(lggr, ServiceName),
 		client:   dataReader,
 		bindings: namespaceBindings{},
 		lookup:   newLookup(),
@@ -67,54 +67,33 @@ func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter,
 	svc.codec = svcCodec
 
 	svc.bindings.SetCodec(svcCodec)
+	svc.Service, svc.Engine = services.Config{
+		Name: ServiceName,
+		NewSubServices: func(l logger.Logger) []services.Service {
+			svc.pdaIndexer = NewPDAIndexer(lggr)
+			return []services.Service{svc.pdaIndexer}
+		},
+	}.NewServiceEngine(logger.Named(lggr, ServiceName))
 	return svc, nil
 }
 
-// Name implements the services.ServiceCtx interface and returns the logger service name.
-func (s *SolanaChainReaderService) Name() string {
-	return s.lggr.Name()
-}
+// Unfortunate, the requirement that we embed UnimplementedChainReader makes this extra boilerplate necessary
+func (s *SolanaChainReaderService) Start(ctx context.Context) error { return s.Service.Start(ctx) }
 
-// Start implements the services.ServiceCtx interface and starts necessary background services.
-// An error is returned if starting any internal services fails. Subsequent calls to Start return
-// and error.
-func (s *SolanaChainReaderService) Start(_ context.Context) error {
-	return s.StartOnce(ServiceName, func() error {
-		return nil
-	})
-}
+func (s *SolanaChainReaderService) Close() error { return s.Service.Close() }
 
-// Close implements the services.ServiceCtx interface and stops all background services and cleans
-// up used resources. Subsequent calls to Close return an error.
-func (s *SolanaChainReaderService) Close() error {
-	return s.StopOnce(ServiceName, func() error {
-		s.wg.Wait()
+func (s *SolanaChainReaderService) HealthReport() map[string]error { return s.Service.HealthReport() }
 
-		return nil
-	})
-}
+func (s *SolanaChainReaderService) Name() string { return s.Service.Name() }
 
-// Ready implements the services.ServiceCtx interface and returns an error if starting the service
-// encountered any errors or if the service is not ready to serve requests.
-func (s *SolanaChainReaderService) Ready() error {
-	return s.StateMachine.Ready()
-}
-
-// HealthReport implements the services.ServiceCtx interface and returns errors for any internal
-// function or service that may have failed.
-func (s *SolanaChainReaderService) HealthReport() map[string]error {
-	return map[string]error{s.Name(): s.Healthy()}
-}
+func (s *SolanaChainReaderService) Ready() error { return s.Service.Ready() }
 
 // GetLatestValue implements the types.ContractReader interface and requests and parses on-chain
 // data named by the provided contract, method, and params.
 func (s *SolanaChainReaderService) GetLatestValue(ctx context.Context, readIdentifier string, _ primitives.ConfidenceLevel, params any, returnVal any) error {
-	if err := s.Ready(); err != nil {
+	if err := s.Service.Ready(); err != nil {
 		return err
 	}
-
-	s.wg.Add(1)
-	defer s.wg.Done()
 
 	values, ok := s.lookup.getContractForReadIdentifiers(readIdentifier)
 	if !ok {
@@ -130,9 +109,12 @@ func (s *SolanaChainReaderService) GetLatestValue(ctx context.Context, readIdent
 		},
 	}
 
-	results, err := doMethodBatchCall(ctx, s.client, s.bindings, batch)
-	if err != nil {
-		return err
+	batchCtx, cancel := s.mergeContext(ctx)
+	defer cancel()
+
+	results, batchCallErr := doMethodBatchCall(batchCtx, s.client, s.bindings, batch)
+	if batchCallErr != nil {
+		return batchCallErr
 	}
 
 	if len(results) != len(batch) {
@@ -144,6 +126,21 @@ func (s *SolanaChainReaderService) GetLatestValue(ctx context.Context, readIdent
 	}
 
 	return nil
+}
+
+// Return a child context which gets cancelled as soon as either the calling ctx or the
+// SolanaChainReaderService context gets cancelled
+func (s *SolanaChainReaderService) mergeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	newCtx, cancel := s.NewCtx()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-newCtx.Done():
+		}
+	}()
+	return newCtx, cancel
 }
 
 // BatchGetLatestValues implements the types.ContractReader interface.
@@ -165,7 +162,10 @@ func (s *SolanaChainReaderService) BatchGetLatestValues(ctx context.Context, req
 		}
 	}
 
-	results, err := doMethodBatchCall(ctx, s.client, s.bindings, batch)
+	batchCtx, cancel := s.mergeContext(ctx)
+	defer cancel()
+
+	results, err := doMethodBatchCall(batchCtx, s.client, s.bindings, batch)
 	if err != nil {
 		return nil, err
 	}

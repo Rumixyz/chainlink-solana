@@ -609,6 +609,127 @@ func (_c *ReaderWriter_GetLatestBlockHeight_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// GetProgramAccountsBySeed provides a mock function with given fields: ctx, addr, seedOffset, seed
+func (_m *ReaderWriter) GetProgramAccountsBySeed(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58) (rpc.GetProgramAccountsResult, error) {
+	ret := _m.Called(ctx, addr, seedOffset, seed)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProgramAccountsBySeed")
+	}
+
+	var r0 rpc.GetProgramAccountsResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, solana.PublicKey, uint64, solana.Base58) (rpc.GetProgramAccountsResult, error)); ok {
+		return rf(ctx, addr, seedOffset, seed)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, solana.PublicKey, uint64, solana.Base58) rpc.GetProgramAccountsResult); ok {
+		r0 = rf(ctx, addr, seedOffset, seed)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(rpc.GetProgramAccountsResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, solana.PublicKey, uint64, solana.Base58) error); ok {
+		r1 = rf(ctx, addr, seedOffset, seed)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ReaderWriter_GetProgramAccountsBySeed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProgramAccountsBySeed'
+type ReaderWriter_GetProgramAccountsBySeed_Call struct {
+	*mock.Call
+}
+
+// GetProgramAccountsBySeed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - addr solana.PublicKey
+//   - seedOffset uint64
+//   - seed solana.Base58
+func (_e *ReaderWriter_Expecter) GetProgramAccountsBySeed(ctx interface{}, addr interface{}, seedOffset interface{}, seed interface{}) *ReaderWriter_GetProgramAccountsBySeed_Call {
+	return &ReaderWriter_GetProgramAccountsBySeed_Call{Call: _e.mock.On("GetProgramAccountsBySeed", ctx, addr, seedOffset, seed)}
+}
+
+func (_c *ReaderWriter_GetProgramAccountsBySeed_Call) Run(run func(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58)) *ReaderWriter_GetProgramAccountsBySeed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(solana.PublicKey), args[2].(uint64), args[3].(solana.Base58))
+	})
+	return _c
+}
+
+func (_c *ReaderWriter_GetProgramAccountsBySeed_Call) Return(_a0 rpc.GetProgramAccountsResult, _a1 error) *ReaderWriter_GetProgramAccountsBySeed_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ReaderWriter_GetProgramAccountsBySeed_Call) RunAndReturn(run func(context.Context, solana.PublicKey, uint64, solana.Base58) (rpc.GetProgramAccountsResult, error)) *ReaderWriter_GetProgramAccountsBySeed_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetProgramAccountsWithOpts provides a mock function with given fields: ctx, addr, opts
+func (_m *ReaderWriter) GetProgramAccountsWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error) {
+	ret := _m.Called(ctx, addr, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProgramAccountsWithOpts")
+	}
+
+	var r0 rpc.GetProgramAccountsResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, solana.PublicKey, *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error)); ok {
+		return rf(ctx, addr, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, solana.PublicKey, *rpc.GetProgramAccountsOpts) rpc.GetProgramAccountsResult); ok {
+		r0 = rf(ctx, addr, opts)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(rpc.GetProgramAccountsResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, solana.PublicKey, *rpc.GetProgramAccountsOpts) error); ok {
+		r1 = rf(ctx, addr, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ReaderWriter_GetProgramAccountsWithOpts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProgramAccountsWithOpts'
+type ReaderWriter_GetProgramAccountsWithOpts_Call struct {
+	*mock.Call
+}
+
+// GetProgramAccountsWithOpts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - addr solana.PublicKey
+//   - opts *rpc.GetProgramAccountsOpts
+func (_e *ReaderWriter_Expecter) GetProgramAccountsWithOpts(ctx interface{}, addr interface{}, opts interface{}) *ReaderWriter_GetProgramAccountsWithOpts_Call {
+	return &ReaderWriter_GetProgramAccountsWithOpts_Call{Call: _e.mock.On("GetProgramAccountsWithOpts", ctx, addr, opts)}
+}
+
+func (_c *ReaderWriter_GetProgramAccountsWithOpts_Call) Run(run func(ctx context.Context, addr solana.PublicKey, opts *rpc.GetProgramAccountsOpts)) *ReaderWriter_GetProgramAccountsWithOpts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(solana.PublicKey), args[2].(*rpc.GetProgramAccountsOpts))
+	})
+	return _c
+}
+
+func (_c *ReaderWriter_GetProgramAccountsWithOpts_Call) Return(_a0 rpc.GetProgramAccountsResult, _a1 error) *ReaderWriter_GetProgramAccountsWithOpts_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ReaderWriter_GetProgramAccountsWithOpts_Call) RunAndReturn(run func(context.Context, solana.PublicKey, *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error)) *ReaderWriter_GetProgramAccountsWithOpts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSignaturesForAddressWithOpts provides a mock function with given fields: ctx, addr, opts
 func (_m *ReaderWriter) GetSignaturesForAddressWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error) {
 	ret := _m.Called(ctx, addr, opts)

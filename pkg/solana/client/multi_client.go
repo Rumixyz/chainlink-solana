@@ -175,3 +175,20 @@ func (m *MultiClient) GetBlockWithOpts(ctx context.Context, slot uint64, opts *r
 
 	return r.GetBlockWithOpts(ctx, slot, opts)
 }
+
+func (m *MultiClient) GetProgramAccountsWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetProgramAccountsOpts) (rpc.GetProgramAccountsResult, error) {
+	r, err := m.getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	return r.GetProgramAccountsWithOpts(ctx, addr, opts)
+}
+
+func (m *MultiClient) GetProgramAccountsBySeed(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58) (rpc.GetProgramAccountsResult, error) {
+	r, err := m.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return r.GetProgramAccountsBySeed(ctx, addr, seedOffset, seed)
+}

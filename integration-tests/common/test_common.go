@@ -328,7 +328,7 @@ func (m *OCRv2TestState) CreateJobs() {
 			err = m.Clients.SolanaClient.Fund(m.Clients.ChainlinkClient.NKeys[nIdx].TXKey.Data.ID, big.NewFloat(1e4))
 			require.NoError(m.Config.T, err, "Error sending funds")
 		} else {
-			err = solclient.SendFunds(*m.Config.TestConfig.Common.PrivateKey, m.Clients.ChainlinkClient.NKeys[nIdx].TXKey.Data.ID, 100000000, c, wsc)
+			err = solclient.SendFunds(*m.Config.TestConfig.Common.PrivateKey, m.Clients.ChainlinkClient.NKeys[nIdx].TXKey.Data.ID, 1_000_000, c, wsc)
 			require.NoError(m.Config.T, err, "Error sending funds")
 		}
 

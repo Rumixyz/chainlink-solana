@@ -20,8 +20,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+	mn "github.com/smartcontractkit/chainlink-framework/multinode"
 
-	mn "github.com/smartcontractkit/chainlink-solana/pkg/solana/client/multinode"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/monitor"
 )
@@ -125,6 +125,12 @@ func TestClient_Reader_Integration(t *testing.T) {
 		assert.GreaterOrEqual(t, slot, startSlot)
 		assert.LessOrEqual(t, slot, slot0)
 	}
+
+	// GetLatestBlockHeight
+	// Test fetching the latest block height
+	blockHeight, err := c.GetLatestBlockHeight(ctx)
+	require.NoError(t, err)
+	require.Greater(t, blockHeight, uint64(0), "Block height should be greater than 0")
 }
 
 func TestClient_Reader_ChainID(t *testing.T) {
@@ -243,7 +249,7 @@ func TestClient_Writer_Integration(t *testing.T) {
 	assert.Nil(t, statuses[0].Err)
 	assert.NotNil(t, statuses[1].Err)
 
-	getTxResult, err := c.GetTransaction(ctx, sigSuccess, nil)
+	getTxResult, err := c.GetTransaction(ctx, sigSuccess)
 	assert.NoError(t, err)
 	assert.NotNil(t, getTxResult)
 
@@ -286,6 +292,32 @@ func TestClient_GetBlocks(t *testing.T) {
 			return len(blocks) >= 2 // slots != blocks (expect multiple blocks for 10 slots)
 		},
 		requestTimeout, 500*time.Millisecond)
+}
+
+func TestClient_GetLatestBlockHeight(t *testing.T) {
+	t.Parallel()
+
+	ctx := tests.Context(t)
+	url := SetupLocalSolNode(t)
+	requestTimeout := 5 * time.Second
+	lggr := logger.Test(t)
+	cfg := config.NewDefault()
+
+	// Initialize the client
+	c, err := NewClient(url, cfg, requestTimeout, lggr)
+	require.NoError(t, err)
+
+	// Get the latest block height
+	blockHeight, err := c.GetLatestBlockHeight(ctx)
+	require.NoError(t, err)
+	require.Greater(t, blockHeight, uint64(0), "Block height should be greater than 0")
+
+	// Wait until the block height increases
+	require.Eventually(t, func() bool {
+		newBlockHeight, err := c.GetLatestBlockHeight(ctx)
+		require.NoError(t, err)
+		return newBlockHeight > blockHeight
+	}, 10*time.Second, 1*time.Second, "Block height should eventually increase")
 }
 
 func TestClient_SendTxDuplicates_Integration(t *testing.T) {

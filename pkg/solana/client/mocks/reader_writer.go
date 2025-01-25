@@ -5,9 +5,10 @@ package mocks
 import (
 	context "context"
 
-	rpc "github.com/gagliardetto/solana-go/rpc"
-	multinode "github.com/smartcontractkit/chainlink-solana/pkg/solana/client/multinode"
+	multinode "github.com/smartcontractkit/chainlink-framework/multinode"
 	mock "github.com/stretchr/testify/mock"
+
+	rpc "github.com/gagliardetto/solana-go/rpc"
 
 	solana "github.com/gagliardetto/solana-go"
 )
@@ -257,6 +258,66 @@ func (_c *ReaderWriter_GetBlock_Call) RunAndReturn(run func(context.Context, uin
 	return _c
 }
 
+// GetBlockWithOpts provides a mock function with given fields: _a0, _a1, _a2
+func (_m *ReaderWriter) GetBlockWithOpts(_a0 context.Context, _a1 uint64, _a2 *rpc.GetBlockOpts) (*rpc.GetBlockResult, error) {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBlockWithOpts")
+	}
+
+	var r0 *rpc.GetBlockResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, *rpc.GetBlockOpts) (*rpc.GetBlockResult, error)); ok {
+		return rf(_a0, _a1, _a2)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, *rpc.GetBlockOpts) *rpc.GetBlockResult); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*rpc.GetBlockResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, *rpc.GetBlockOpts) error); ok {
+		r1 = rf(_a0, _a1, _a2)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ReaderWriter_GetBlockWithOpts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBlockWithOpts'
+type ReaderWriter_GetBlockWithOpts_Call struct {
+	*mock.Call
+}
+
+// GetBlockWithOpts is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 uint64
+//   - _a2 *rpc.GetBlockOpts
+func (_e *ReaderWriter_Expecter) GetBlockWithOpts(_a0 interface{}, _a1 interface{}, _a2 interface{}) *ReaderWriter_GetBlockWithOpts_Call {
+	return &ReaderWriter_GetBlockWithOpts_Call{Call: _e.mock.On("GetBlockWithOpts", _a0, _a1, _a2)}
+}
+
+func (_c *ReaderWriter_GetBlockWithOpts_Call) Run(run func(_a0 context.Context, _a1 uint64, _a2 *rpc.GetBlockOpts)) *ReaderWriter_GetBlockWithOpts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64), args[2].(*rpc.GetBlockOpts))
+	})
+	return _c
+}
+
+func (_c *ReaderWriter_GetBlockWithOpts_Call) Return(_a0 *rpc.GetBlockResult, _a1 error) *ReaderWriter_GetBlockWithOpts_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ReaderWriter_GetBlockWithOpts_Call) RunAndReturn(run func(context.Context, uint64, *rpc.GetBlockOpts) (*rpc.GetBlockResult, error)) *ReaderWriter_GetBlockWithOpts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBlocks provides a mock function with given fields: ctx, startSlot, endSlot
 func (_m *ReaderWriter) GetBlocks(ctx context.Context, startSlot uint64, endSlot *uint64) (rpc.BlocksResult, error) {
 	ret := _m.Called(ctx, startSlot, endSlot)
@@ -492,6 +553,62 @@ func (_c *ReaderWriter_GetLatestBlock_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// GetLatestBlockHeight provides a mock function with given fields: ctx
+func (_m *ReaderWriter) GetLatestBlockHeight(ctx context.Context) (uint64, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLatestBlockHeight")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (uint64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) uint64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ReaderWriter_GetLatestBlockHeight_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLatestBlockHeight'
+type ReaderWriter_GetLatestBlockHeight_Call struct {
+	*mock.Call
+}
+
+// GetLatestBlockHeight is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *ReaderWriter_Expecter) GetLatestBlockHeight(ctx interface{}) *ReaderWriter_GetLatestBlockHeight_Call {
+	return &ReaderWriter_GetLatestBlockHeight_Call{Call: _e.mock.On("GetLatestBlockHeight", ctx)}
+}
+
+func (_c *ReaderWriter_GetLatestBlockHeight_Call) Run(run func(ctx context.Context)) *ReaderWriter_GetLatestBlockHeight_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *ReaderWriter_GetLatestBlockHeight_Call) Return(_a0 uint64, _a1 error) *ReaderWriter_GetLatestBlockHeight_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ReaderWriter_GetLatestBlockHeight_Call) RunAndReturn(run func(context.Context) (uint64, error)) *ReaderWriter_GetLatestBlockHeight_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSignaturesForAddressWithOpts provides a mock function with given fields: ctx, addr, opts
 func (_m *ReaderWriter) GetSignaturesForAddressWithOpts(ctx context.Context, addr solana.PublicKey, opts *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error) {
 	ret := _m.Called(ctx, addr, opts)
@@ -552,9 +669,9 @@ func (_c *ReaderWriter_GetSignaturesForAddressWithOpts_Call) RunAndReturn(run fu
 	return _c
 }
 
-// GetTransaction provides a mock function with given fields: ctx, txHash, opts
-func (_m *ReaderWriter) GetTransaction(ctx context.Context, txHash solana.Signature, opts *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error) {
-	ret := _m.Called(ctx, txHash, opts)
+// GetTransaction provides a mock function with given fields: ctx, txHash
+func (_m *ReaderWriter) GetTransaction(ctx context.Context, txHash solana.Signature) (*rpc.GetTransactionResult, error) {
+	ret := _m.Called(ctx, txHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetTransaction")
@@ -562,19 +679,19 @@ func (_m *ReaderWriter) GetTransaction(ctx context.Context, txHash solana.Signat
 
 	var r0 *rpc.GetTransactionResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)); ok {
-		return rf(ctx, txHash, opts)
+	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature) (*rpc.GetTransactionResult, error)); ok {
+		return rf(ctx, txHash)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) *rpc.GetTransactionResult); ok {
-		r0 = rf(ctx, txHash, opts)
+	if rf, ok := ret.Get(0).(func(context.Context, solana.Signature) *rpc.GetTransactionResult); ok {
+		r0 = rf(ctx, txHash)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*rpc.GetTransactionResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, solana.Signature, *rpc.GetTransactionOpts) error); ok {
-		r1 = rf(ctx, txHash, opts)
+	if rf, ok := ret.Get(1).(func(context.Context, solana.Signature) error); ok {
+		r1 = rf(ctx, txHash)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -590,14 +707,13 @@ type ReaderWriter_GetTransaction_Call struct {
 // GetTransaction is a helper method to define mock.On call
 //   - ctx context.Context
 //   - txHash solana.Signature
-//   - opts *rpc.GetTransactionOpts
-func (_e *ReaderWriter_Expecter) GetTransaction(ctx interface{}, txHash interface{}, opts interface{}) *ReaderWriter_GetTransaction_Call {
-	return &ReaderWriter_GetTransaction_Call{Call: _e.mock.On("GetTransaction", ctx, txHash, opts)}
+func (_e *ReaderWriter_Expecter) GetTransaction(ctx interface{}, txHash interface{}) *ReaderWriter_GetTransaction_Call {
+	return &ReaderWriter_GetTransaction_Call{Call: _e.mock.On("GetTransaction", ctx, txHash)}
 }
 
-func (_c *ReaderWriter_GetTransaction_Call) Run(run func(ctx context.Context, txHash solana.Signature, opts *rpc.GetTransactionOpts)) *ReaderWriter_GetTransaction_Call {
+func (_c *ReaderWriter_GetTransaction_Call) Run(run func(ctx context.Context, txHash solana.Signature)) *ReaderWriter_GetTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(solana.Signature), args[2].(*rpc.GetTransactionOpts))
+		run(args[0].(context.Context), args[1].(solana.Signature))
 	})
 	return _c
 }
@@ -607,7 +723,7 @@ func (_c *ReaderWriter_GetTransaction_Call) Return(_a0 *rpc.GetTransactionResult
 	return _c
 }
 
-func (_c *ReaderWriter_GetTransaction_Call) RunAndReturn(run func(context.Context, solana.Signature, *rpc.GetTransactionOpts) (*rpc.GetTransactionResult, error)) *ReaderWriter_GetTransaction_Call {
+func (_c *ReaderWriter_GetTransaction_Call) RunAndReturn(run func(context.Context, solana.Signature) (*rpc.GetTransactionResult, error)) *ReaderWriter_GetTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -900,6 +1016,63 @@ func (_c *ReaderWriter_SlotHeight_Call) Return(_a0 uint64, _a1 error) *ReaderWri
 }
 
 func (_c *ReaderWriter_SlotHeight_Call) RunAndReturn(run func(context.Context) (uint64, error)) *ReaderWriter_SlotHeight_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SlotHeightWithCommitment provides a mock function with given fields: ctx, commitment
+func (_m *ReaderWriter) SlotHeightWithCommitment(ctx context.Context, commitment rpc.CommitmentType) (uint64, error) {
+	ret := _m.Called(ctx, commitment)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SlotHeightWithCommitment")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, rpc.CommitmentType) (uint64, error)); ok {
+		return rf(ctx, commitment)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, rpc.CommitmentType) uint64); ok {
+		r0 = rf(ctx, commitment)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, rpc.CommitmentType) error); ok {
+		r1 = rf(ctx, commitment)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ReaderWriter_SlotHeightWithCommitment_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SlotHeightWithCommitment'
+type ReaderWriter_SlotHeightWithCommitment_Call struct {
+	*mock.Call
+}
+
+// SlotHeightWithCommitment is a helper method to define mock.On call
+//   - ctx context.Context
+//   - commitment rpc.CommitmentType
+func (_e *ReaderWriter_Expecter) SlotHeightWithCommitment(ctx interface{}, commitment interface{}) *ReaderWriter_SlotHeightWithCommitment_Call {
+	return &ReaderWriter_SlotHeightWithCommitment_Call{Call: _e.mock.On("SlotHeightWithCommitment", ctx, commitment)}
+}
+
+func (_c *ReaderWriter_SlotHeightWithCommitment_Call) Run(run func(ctx context.Context, commitment rpc.CommitmentType)) *ReaderWriter_SlotHeightWithCommitment_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(rpc.CommitmentType))
+	})
+	return _c
+}
+
+func (_c *ReaderWriter_SlotHeightWithCommitment_Call) Return(_a0 uint64, _a1 error) *ReaderWriter_SlotHeightWithCommitment_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ReaderWriter_SlotHeightWithCommitment_Call) RunAndReturn(run func(context.Context, rpc.CommitmentType) (uint64, error)) *ReaderWriter_SlotHeightWithCommitment_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -30,10 +30,10 @@ type SolanaChainReaderService struct {
 	client MultipleAccountGetter
 
 	// internal values
-	bindings namespaceBindings
-	lookup   *lookup
-	parsed   *codec.ParsedTypes
-	codec    types.RemoteCodec
+	bdRegistry bindingsRegistry
+	lookup     *lookup
+	parsed     *codec.ParsedTypes
+	codec      types.RemoteCodec
 
 	// service state management
 	wg sync.WaitGroup
@@ -48,14 +48,18 @@ var (
 // NewChainReaderService is a constructor for a new ChainReaderService for Solana. Returns a nil service on error.
 func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter, cfg config.ContractReader) (*SolanaChainReaderService, error) {
 	svc := &SolanaChainReaderService{
-		lggr:     logger.Named(lggr, ServiceName),
-		client:   dataReader,
-		bindings: namespaceBindings{},
-		lookup:   newLookup(),
-		parsed:   &codec.ParsedTypes{EncoderDefs: map[string]codec.Entry{}, DecoderDefs: map[string]codec.Entry{}},
+		lggr:       logger.Named(lggr, ServiceName),
+		client:     dataReader,
+		bdRegistry: bindingsRegistry{},
+		lookup:     newLookup(),
+		parsed:     &codec.ParsedTypes{EncoderDefs: map[string]codec.Entry{}, DecoderDefs: map[string]codec.Entry{}},
 	}
 
-	if err := svc.init(cfg.Namespaces); err != nil {
+	if err := svc.bdRegistry.initAddressSharing(cfg.AddressShareGroups); err != nil {
+		return nil, err
+	}
+
+	if err := svc.initNamespace(cfg.Namespaces); err != nil {
 		return nil, err
 	}
 
@@ -66,7 +70,7 @@ func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter,
 
 	svc.codec = svcCodec
 
-	svc.bindings.SetCodec(svcCodec)
+	svc.bdRegistry.SetCodec(svcCodec)
 	return svc, nil
 }
 
@@ -123,14 +127,14 @@ func (s *SolanaChainReaderService) GetLatestValue(ctx context.Context, readIdent
 
 	batch := []call{
 		{
-			ContractName: values.contract,
-			ReadName:     values.genericName,
-			Params:       params,
-			ReturnVal:    returnVal,
+			Namespace: values.contract,
+			ReadName:  values.genericName,
+			Params:    params,
+			ReturnVal: returnVal,
 		},
 	}
 
-	results, err := doMethodBatchCall(ctx, s.client, s.bindings, batch)
+	results, err := doMethodBatchCall(ctx, s.client, s.bdRegistry, batch)
 	if err != nil {
 		return err
 	}
@@ -157,15 +161,15 @@ func (s *SolanaChainReaderService) BatchGetLatestValues(ctx context.Context, req
 		for idx, readReq := range req {
 			idxLookup[bound][idx] = len(batch)
 			batch = append(batch, call{
-				ContractName: bound.Name,
-				ReadName:     readReq.ReadName,
-				Params:       readReq.Params,
-				ReturnVal:    readReq.ReturnVal,
+				Namespace: bound.Name,
+				ReadName:  readReq.ReadName,
+				Params:    readReq.Params,
+				ReturnVal: readReq.ReturnVal,
 			})
 		}
 	}
 
-	results, err := doMethodBatchCall(ctx, s.client, s.bindings, batch)
+	results, err := doMethodBatchCall(ctx, s.client, s.bdRegistry, batch)
 	if err != nil {
 		return nil, err
 	}
@@ -195,21 +199,21 @@ func (s *SolanaChainReaderService) QueryKey(_ context.Context, _ types.BoundCont
 	return nil, errors.New("unimplemented")
 }
 
-// Bind implements the types.ContractReader interface and allows new contract bindings to be added
+// Bind implements the types.ContractReader interface and allows new contract namespaceBindings to be added
 // to the service.
 func (s *SolanaChainReaderService) Bind(_ context.Context, bindings []types.BoundContract) error {
-	for _, binding := range bindings {
-		if err := s.bindings.Bind(binding); err != nil {
+	for i := range bindings {
+		if err := s.bdRegistry.Bind(&bindings[i]); err != nil {
 			return err
 		}
 
-		s.lookup.bindAddressForContract(binding.Name, binding.Address)
+		s.lookup.bindAddressForContract(bindings[i].Name, bindings[i].Address)
 	}
 
 	return nil
 }
 
-// Unbind implements the types.ContractReader interface and allows existing contract bindings to be removed
+// Unbind implements the types.ContractReader interface and allows existing contract namespaceBindings to be removed
 // from the service.
 func (s *SolanaChainReaderService) Unbind(_ context.Context, bindings []types.BoundContract) error {
 	for _, binding := range bindings {
@@ -227,7 +231,7 @@ func (s *SolanaChainReaderService) CreateContractType(readIdentifier string, for
 		return nil, fmt.Errorf("%w: no contract for read identifier", types.ErrInvalidConfig)
 	}
 
-	return s.bindings.CreateType(values.contract, values.genericName, forEncoding)
+	return s.bdRegistry.CreateType(values.contract, values.genericName, forEncoding)
 }
 
 func (s *SolanaChainReaderService) addCodecDef(forEncoding bool, namespace, genericName string, readType codec.ChainConfigType, idl codec.IDL, idlDefinition interface{}, modCfg commoncodec.ModifiersConfig) error {
@@ -249,7 +253,7 @@ func (s *SolanaChainReaderService) addCodecDef(forEncoding bool, namespace, gene
 	return nil
 }
 
-func (s *SolanaChainReaderService) init(namespaces map[string]config.ChainContractReader) error {
+func (s *SolanaChainReaderService) initNamespace(namespaces map[string]config.ChainContractReader) error {
 	for namespace, nameSpaceDef := range namespaces {
 		for genericName, read := range nameSpaceDef.Reads {
 			injectAddressModifier(read.InputModifications, read.OutputModifications)
@@ -303,7 +307,7 @@ func (s *SolanaChainReaderService) addAccountRead(namespace string, genericName 
 	if err := s.addCodecDef(true, namespace, genericName, codec.ChainConfigTypeAccountDef, idl, inputAccountIDLDef, readDefinition.InputModifications); err != nil {
 		return err
 	}
-	s.bindings.AddReadBinding(namespace, genericName, reader)
+	s.bdRegistry.AddReadBinding(namespace, genericName, reader)
 
 	return nil
 }

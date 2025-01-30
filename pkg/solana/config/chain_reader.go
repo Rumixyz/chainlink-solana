@@ -28,11 +28,20 @@ type ChainContractReader struct {
 }
 
 type ReadDefinition struct {
-	ChainSpecificName   string                      `json:"chainSpecificName"`
-	ReadType            ReadType                    `json:"readType,omitempty"`
-	InputModifications  commoncodec.ModifiersConfig `json:"inputModifications,omitempty"`
-	OutputModifications commoncodec.ModifiersConfig `json:"outputModifications,omitempty"`
-	PDADefiniton        codec.PDATypeDef            `json:"pdaDefinition,omitempty"` // Only used for PDA account reads
+	ChainSpecificName              string                          `json:"chainSpecificName"`
+	ReadType                       ReadType                        `json:"readType,omitempty"`
+	InputModifications             commoncodec.ModifiersConfig     `json:"inputModifications,omitempty"`
+	OutputModifications            commoncodec.ModifiersConfig     `json:"outputModifications,omitempty"`
+	PDADefiniton                   codec.PDATypeDef                `json:"pdaDefinition,omitempty"` // Only used for PDA account reads
+	RuntimeSharedAddressHardcoders *RuntimeSharedAddressHardcoders `json:"runtimeSharedAddressHardcoders,omitempty"`
+}
+
+// RuntimeSharedAddressHardcoders is a used to help to handle contract abstraction where multiple plugin contracts were collapsed into one
+type RuntimeSharedAddressHardcoders struct {
+	// InputHardCoder is used to specify a path to which a shared address will be hardcoded.
+	InputHardCoder commoncodec.HardCodeModifierConfig `json:"inputHardCoder"`
+	// OutputHardCoder is used to specify a path to which a shared address will be hardcoded.
+	OutputHardCoder commoncodec.HardCodeModifierConfig `json:"outputHardCoder"`
 }
 
 type ReadType int

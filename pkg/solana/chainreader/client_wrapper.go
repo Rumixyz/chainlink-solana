@@ -43,3 +43,7 @@ func (w *RPCClientWrapper) GetMultipleAccountData(ctx context.Context, keys ...s
 
 	return bts, nil
 }
+
+func (m *RPCClientWrapper) GetProgramAccountsBySeed(ctx context.Context, addr solana.PublicKey, seedOffset uint64, seed solana.Base58) (rpc.GetProgramAccountsResult, error) {
+
+}

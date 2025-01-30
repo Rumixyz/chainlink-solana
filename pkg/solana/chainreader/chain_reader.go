@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query/primitives"
 
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
@@ -25,7 +26,7 @@ type SolanaChainReaderService struct {
 
 	// provided values
 	lggr   logger.Logger
-	client MultipleAccountGetter
+	client client.MultiClient
 
 	// internal values
 	bindings   namespaceBindings
@@ -47,9 +48,9 @@ type PDAIndexer interface {
 var _ types.ContractReader = &SolanaChainReaderService{}
 
 // NewChainReaderService is a constructor for a new ChainReaderService for Solana. Returns a nil service on error.
-func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter, cfg config.ContractReader) (*SolanaChainReaderService, error) {
+func NewChainReaderService(lggr logger.Logger, cl client.MultiClient, cfg config.ContractReader) (*SolanaChainReaderService, error) {
 	svc := &SolanaChainReaderService{
-		client:   dataReader,
+		client:   cl,
 		bindings: namespaceBindings{},
 		lookup:   newLookup(),
 		parsed:   &codec.ParsedTypes{EncoderDefs: map[string]codec.Entry{}, DecoderDefs: map[string]codec.Entry{}},
@@ -66,18 +67,20 @@ func NewChainReaderService(lggr logger.Logger, dataReader MultipleAccountGetter,
 
 	svc.codec = svcCodec
 
+	pdaConfig := pdaIndexerConfig{}
+
 	svc.bindings.SetCodec(svcCodec)
 	svc.Service, svc.Engine = services.Config{
 		Name: ServiceName,
 		NewSubServices: func(l logger.Logger) []services.Service {
-			svc.pdaIndexer = NewPDAIndexer(lggr)
+			svc.pdaIndexer = NewPDAIndexer(lggr, pdaConfig)
 			return []services.Service{svc.pdaIndexer}
 		},
 	}.NewServiceEngine(logger.Named(lggr, ServiceName))
 	return svc, nil
 }
 
-// Unfortunate, the requirement that we embed UnimplementedChainReader makes this extra boilerplate necessary
+// Unfortunately, the requirement that we embed UnimplementedChainReader makes this extra boilerplate necessary
 func (s *SolanaChainReaderService) Start(ctx context.Context) error { return s.Service.Start(ctx) }
 
 func (s *SolanaChainReaderService) Close() error { return s.Service.Close() }

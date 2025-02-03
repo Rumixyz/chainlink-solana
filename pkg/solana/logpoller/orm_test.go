@@ -4,16 +4,18 @@ package logpoller
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/sqltest"
+
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -64,7 +66,7 @@ func TestLogPollerFilters(t *testing.T) {
 			t.Run("Read/write filter: "+filter.Name, func(t *testing.T) {
 				ctx := tests.Context(t)
 				chainID := uuid.NewString()
-				dbx := pg.NewTestDB(t, pg.TestURL(t))
+				dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 				orm := NewORM(chainID, dbx, lggr)
 				id, err := orm.InsertFilter(ctx, filter)
 				require.NoError(t, err)
@@ -72,12 +74,19 @@ func TestLogPollerFilters(t *testing.T) {
 				dbFilter, err := orm.GetFilterByID(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, filter, dbFilter)
+				dbFilters, err := orm.SelectFilters(ctx)
+				require.NoError(t, err)
+				i := slices.IndexFunc(dbFilters, func(f Filter) bool {
+					return f.ID == id
+				})
+				require.NotEqual(t, -1, i, "Expected filter to be present in slice")
+				require.Equal(t, filter, dbFilters[i])
 			})
 		}
 	})
 	t.Run("Updates non primary fields if name and chainID is not unique", func(t *testing.T) {
 		chainID := uuid.NewString()
-		dbx := pg.NewTestDB(t, pg.TestURL(t))
+		dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 		orm := NewORM(chainID, dbx, lggr)
 		filter := newRandomFilter(t)
 		ctx := tests.Context(t)
@@ -97,7 +106,7 @@ func TestLogPollerFilters(t *testing.T) {
 	})
 	t.Run("Allows reuse name of a filter marked as deleted", func(t *testing.T) {
 		chainID := uuid.NewString()
-		dbx := pg.NewTestDB(t, pg.TestURL(t))
+		dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 		orm := NewORM(chainID, dbx, lggr)
 		filter := newRandomFilter(t)
 		ctx := tests.Context(t)
@@ -115,7 +124,7 @@ func TestLogPollerFilters(t *testing.T) {
 		require.NotEqual(t, newFilterID, filterID, "expected db to generate new filter as we can not be sure that new one matches the same logs")
 	})
 	t.Run("Allows reuse name for a filter with different chainID", func(t *testing.T) {
-		dbx := pg.NewTestDB(t, pg.TestURL(t))
+		dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 		orm1 := NewORM(uuid.NewString(), dbx, lggr)
 		orm2 := NewORM(uuid.NewString(), dbx, lggr)
 		filter := newRandomFilter(t)
@@ -127,7 +136,7 @@ func TestLogPollerFilters(t *testing.T) {
 		require.NotEqual(t, filterID1, filterID2)
 	})
 	t.Run("Deletes log on parent filter deletion", func(t *testing.T) {
-		dbx := pg.NewTestDB(t, pg.TestURL(t))
+		dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 		chainID := uuid.NewString()
 		orm := NewORM(chainID, dbx, lggr)
 		filter := newRandomFilter(t)
@@ -153,7 +162,7 @@ func TestLogPollerFilters(t *testing.T) {
 		require.Len(t, logs, 0)
 	})
 	t.Run("MarkBackfilled updated corresponding filed", func(t *testing.T) {
-		dbx := pg.NewTestDB(t, pg.TestURL(t))
+		dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 		chainID := uuid.NewString()
 		orm := NewORM(chainID, dbx, lggr)
 
@@ -183,12 +192,13 @@ func TestLogPollerFilters(t *testing.T) {
 func TestLogPollerLogs(t *testing.T) {
 	lggr := logger.Test(t)
 	chainID := uuid.NewString()
-	dbx := pg.NewTestDB(t, pg.TestURL(t))
+	dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 	orm := NewORM(chainID, dbx, lggr)
 
 	ctx := tests.Context(t)
 	// create filter as it's required for a log
 	filterID, err := orm.InsertFilter(ctx, newRandomFilter(t))
+	require.NoError(t, err)
 	filterID2, err := orm.InsertFilter(ctx, newRandomFilter(t))
 	require.NoError(t, err)
 	log := newRandomLog(t, filterID, chainID, "myEvent")
@@ -222,7 +232,7 @@ func TestLogPollerLogs(t *testing.T) {
 
 func TestLogPoller_GetLatestBlock(t *testing.T) {
 	lggr := logger.Test(t)
-	dbx := pg.NewTestDB(t, pg.TestURL(t))
+	dbx := sqltest.NewDB(t, sqltest.TestURL(t))
 
 	createLogsForBlocks := func(ctx context.Context, orm *DSORM, blocks ...int64) {
 		filterID, err := orm.InsertFilter(ctx, newRandomFilter(t))

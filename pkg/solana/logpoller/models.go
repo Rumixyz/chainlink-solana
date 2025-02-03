@@ -48,7 +48,7 @@ type Log struct {
 	BlockTimestamp time.Time
 	Address        PublicKey
 	EventSig       EventSignature
-	SubkeyValues   []IndexedValue
+	SubkeyValues   IndexedValues
 	TxHash         Signature
 	Data           []byte
 	CreatedAt      time.Time

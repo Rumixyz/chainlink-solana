@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"
 )
@@ -190,6 +191,32 @@ func (v *IndexedValue) FromFloat64(f float64) {
 		return
 	}
 	v.FromUint64(math.MaxInt64 + 1 - math.Float64bits(f))
+}
+
+type IndexedValues []IndexedValue
+
+func (v *IndexedValues) Scan(src interface{}) error {
+	byteArray := pq.ByteaArray{}
+	err := byteArray.Scan(src)
+	if err != nil {
+		return fmt.Errorf("failed to scan IndexedValues: %w", err)
+	}
+
+	*v = make([]IndexedValue, 0, len(byteArray))
+	for _, b := range byteArray {
+		*v = append(*v, b)
+	}
+
+	return nil
+}
+
+func (v IndexedValues) Value() (driver.Value, error) {
+	byteArray := make(pq.ByteaArray, len(v))
+	for i, b := range v {
+		byteArray[i] = b
+	}
+
+	return byteArray.Value()
 }
 
 func NewIndexedValue(typedVal any) (iVal IndexedValue, err error) {

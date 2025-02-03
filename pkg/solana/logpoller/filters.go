@@ -20,6 +20,8 @@ import (
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"
 )
 
+const encodedDiscriminatorHeadLen = 10
+
 type filters struct {
 	orm  ORM
 	lggr logger.SugaredLogger
@@ -121,17 +123,24 @@ func (fl *filters) RegisterFilter(ctx context.Context, filter Filter) error {
 
 	filter.ID = filterID
 
-	idl := codec.IDL{
-		Events: []codec.IdlEvent{filter.EventIdl.IdlEvent},
-		Types:  filter.EventIdl.IdlTypeDefSlice,
-	}
-	fl.decoders[filter.ID], err = codec.NewIDLEventCodec(idl, binary.LittleEndian())
+	err = fl.addToIndices(filter)
 	if err != nil {
-		return fmt.Errorf("failed to create event decoder: %w", err)
+		return fmt.Errorf("failed to add filter to indices: %w", err)
+	}
+
+	return nil
+}
+
+func (fl *filters) addToIndices(filter Filter) error {
+	fl.filtersByID[filter.ID] = &filter
+
+	if _, ok := fl.filtersByName[filter.Name]; ok {
+		errMsg := fmt.Sprintf("invariant violation while loading from db: expected filters to have unique name: %s ", filter.Name)
+		fl.lggr.Critical(errMsg)
+		return errors.New(errMsg)
 	}
 
 	fl.filtersByName[filter.Name] = filter.ID
-	fl.filtersByID[filter.ID] = &filter
 	filtersForAddress, ok := fl.filtersByAddress[filter.Address]
 	if !ok {
 		filtersForAddress = make(map[EventSignature]map[int64]struct{})
@@ -144,17 +153,32 @@ func (fl *filters) RegisterFilter(ctx context.Context, filter Filter) error {
 		filtersForAddress[filter.EventSig] = filtersForEventSig
 	}
 
+	if _, ok := filtersForEventSig[filter.ID]; ok {
+		errMsg := fmt.Sprintf("invariant violation while loading from db: expected filters to have unique ID: %d ", filter.ID)
+		fl.lggr.Critical(errMsg)
+		return errors.New(errMsg)
+	}
+
 	filtersForEventSig[filter.ID] = struct{}{}
 	if !filter.IsBackfilled {
 		fl.filtersToBackfill[filter.ID] = struct{}{}
 	}
 
+	idl := codec.IDL{
+		Events: []codec.IdlEvent{filter.EventIdl.IdlEvent},
+		Types:  filter.EventIdl.IdlTypeDefSlice,
+	}
+	var err error
+	fl.decoders[filter.ID], err = codec.NewIDLEventCodec(idl, binary.LittleEndian())
+	if err != nil {
+		return fmt.Errorf("failed to create event decoder: %w", err)
+	}
+
 	programID := filter.Address.ToSolana().String()
 	fl.knownPrograms[programID]++
 
-	discriminatorHead := filter.Discriminator()[:10]
+	discriminatorHead := filter.Discriminator()[:encodedDiscriminatorHeadLen]
 	fl.knownDiscriminators[discriminatorHead]++
-
 	return nil
 }
 
@@ -197,6 +221,7 @@ func (fl *filters) removeFilterFromIndexes(filter Filter) {
 	delete(fl.filtersToBackfill, filter.ID)
 	delete(fl.filtersByID, filter.ID)
 	delete(fl.seqNums, filter.ID)
+	delete(fl.decoders, filter.ID)
 
 	filtersForAddress, ok := fl.filtersByAddress[filter.Address]
 	if !ok {
@@ -229,7 +254,7 @@ func (fl *filters) removeFilterFromIndexes(filter Filter) {
 		}
 	}
 
-	discriminatorHead := filter.Discriminator()[:10]
+	discriminatorHead := filter.Discriminator()[:encodedDiscriminatorHeadLen]
 	if refcount, ok := fl.knownDiscriminators[discriminatorHead]; ok {
 		refcount--
 		if refcount > 0 {
@@ -315,7 +340,7 @@ func (fl *filters) MatchingFiltersForEncodedEvent(event ProgramEvent) iter.Seq[F
 		// discriminators if the first 10 characters don't match. If it passes that initial test, we base64-decode the
 		// first 12 characters, and use the first 8 bytes of that as the event sig to call MatchingFilters. The address
 		// also needs to be base58-decoded to pass to MatchingFilters
-		_, ok = fl.knownDiscriminators[event.Data[:10]]
+		_, ok = fl.knownDiscriminators[event.Data[:encodedDiscriminatorHeadLen]]
 		return ok
 	}
 
@@ -413,37 +438,11 @@ func (fl *filters) LoadFilters(ctx context.Context) error {
 			continue
 		}
 
-		fl.filtersByID[filter.ID] = &filter
-
-		if _, ok := fl.filtersByName[filter.Name]; ok {
-			errMsg := fmt.Sprintf("invariant violation while loading from db: expected filters to have unique name: %s ", filter.Name)
-			fl.lggr.Critical(errMsg)
-			return errors.New(errMsg)
+		err := fl.addToIndices(filter)
+		if err != nil {
+			return fmt.Errorf("failed to add filter to indices: %w", err)
 		}
 
-		fl.filtersByName[filter.Name] = filter.ID
-		filtersForAddress, ok := fl.filtersByAddress[filter.Address]
-		if !ok {
-			filtersForAddress = make(map[EventSignature]map[int64]struct{})
-			fl.filtersByAddress[filter.Address] = filtersForAddress
-		}
-
-		filtersForEventSig, ok := filtersForAddress[filter.EventSig]
-		if !ok {
-			filtersForEventSig = make(map[int64]struct{})
-			filtersForAddress[filter.EventSig] = filtersForEventSig
-		}
-
-		if _, ok := filtersForEventSig[filter.ID]; ok {
-			errMsg := fmt.Sprintf("invariant violation while loading from db: expected filters to have unique ID: %d ", filter.ID)
-			fl.lggr.Critical(errMsg)
-			return errors.New(errMsg)
-		}
-
-		filtersForEventSig[filter.ID] = struct{}{}
-		if !filter.IsBackfilled {
-			fl.filtersToBackfill[filter.ID] = struct{}{}
-		}
 	}
 
 	fl.seqNums, err = fl.orm.SelectSeqNums(ctx)

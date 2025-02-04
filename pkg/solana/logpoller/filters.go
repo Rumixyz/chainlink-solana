@@ -135,7 +135,7 @@ func (fl *filters) RegisterFilter(ctx context.Context, filter Filter) error {
 }
 
 func newDecoder(filter Filter) (Decoder, error) {
-	cEntry, err := codec.NewEventArgsEntry(filter.EventName, filter.EventIdl.EventIDLTypes, true, nil, binary.LittleEndian())
+	cEntry, err := codec.NewEventArgsEntry(filter.EventName, codec.EventIDLTypes(filter.EventIdl), true, nil, binary.LittleEndian())
 	if err != nil {
 		return nil, err
 	}

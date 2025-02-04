@@ -305,7 +305,7 @@ func TestProcess(t *testing.T) {
 	require.NoError(t, err)
 
 	idl := EventIdl{
-		EventIDLTypes: codec.EventIDLTypes{Event: codec.IdlEvent{
+		Event: codec.IdlEvent{
 			Name: "myEvent",
 			Fields: []codec.IdlEventField{{
 				Name: "A",
@@ -315,8 +315,7 @@ func TestProcess(t *testing.T) {
 				Type: idlTypeString,
 			}},
 		},
-			Types: []codec.IdlTypeDef{},
-		},
+		Types: []codec.IdlTypeDef{},
 	}
 
 	filter := Filter{

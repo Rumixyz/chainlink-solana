@@ -1,7 +1,6 @@
 package logpoller
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"

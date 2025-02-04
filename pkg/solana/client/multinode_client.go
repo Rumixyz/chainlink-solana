@@ -31,10 +31,8 @@ func (h *Head) BlockNumber() int64 {
 	return int64(*h.BlockHeight)
 }
 
-func (h *Head) BlockDifficulty() *big.Int {
-	// Not relevant for Solana
-	return nil
-}
+func (h *Head) BlockDifficulty() *big.Int    { return nil } // Not relevant for Solana
+func (h *Head) GetTotalDifficulty() *big.Int { return nil } // Not relevant for Solana
 
 func (h *Head) IsValid() bool {
 	return h != nil && h.BlockHeight != nil && *h.BlockHeight > 0 && h.BlockHash != nil
@@ -108,7 +106,7 @@ func (m *MultiNodeClient) SubscribeToHeads(ctx context.Context) (<-chan *Head, m
 	}
 	timeout := pollInterval
 	poller, channel := mn.NewPoller[*Head](pollInterval, func(pollRequestCtx context.Context) (*Head, error) {
-		if mn.CtxIsHeathCheckRequest(ctx) {
+		if mn.CtxIsHealthCheckRequest(ctx) {
 			pollRequestCtx = mn.CtxAddHealthCheckFlag(pollRequestCtx)
 		}
 		return m.LatestBlock(pollRequestCtx)
@@ -137,7 +135,7 @@ func (m *MultiNodeClient) SubscribeToFinalizedHeads(ctx context.Context) (<-chan
 	}
 	timeout := finalizedBlockPollInterval
 	poller, channel := mn.NewPoller[*Head](finalizedBlockPollInterval, func(pollRequestCtx context.Context) (*Head, error) {
-		if mn.CtxIsHeathCheckRequest(ctx) {
+		if mn.CtxIsHealthCheckRequest(ctx) {
 			pollRequestCtx = mn.CtxAddHealthCheckFlag(pollRequestCtx)
 		}
 		return m.LatestFinalizedBlock(pollRequestCtx)
@@ -205,7 +203,7 @@ func (m *MultiNodeClient) onNewHead(ctx context.Context, requestCh <-chan struct
 
 	m.chainInfoLock.Lock()
 	defer m.chainInfoLock.Unlock()
-	if !mn.CtxIsHeathCheckRequest(ctx) {
+	if !mn.CtxIsHealthCheckRequest(ctx) {
 		m.highestUserObservations.BlockNumber = max(m.highestUserObservations.BlockNumber, head.BlockNumber())
 	}
 	select {
@@ -222,7 +220,7 @@ func (m *MultiNodeClient) onNewFinalizedHead(ctx context.Context, requestCh <-ch
 	}
 	m.chainInfoLock.Lock()
 	defer m.chainInfoLock.Unlock()
-	if !mn.CtxIsHeathCheckRequest(ctx) {
+	if !mn.CtxIsHealthCheckRequest(ctx) {
 		m.highestUserObservations.FinalizedBlockNumber = max(m.highestUserObservations.FinalizedBlockNumber, head.BlockNumber())
 	}
 	select {

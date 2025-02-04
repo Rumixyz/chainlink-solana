@@ -81,7 +81,7 @@ func requireIndexed(t *testing.T, fs *filters, f Filter) {
 	eventSigIDs := byEventSig[f.EventSig]
 	require.Contains(t, eventSigIDs, f.ID)
 	require.Contains(t, fs.decoders, f.ID)
-	require.Contains(t, fs.knownDiscriminators, f.Discriminator()[:encodedDiscriminatorHeadLen])
+	require.Contains(t, fs.knownDiscriminators, f.DiscriminatorRawBytes())
 	require.Contains(t, fs.knownPrograms, f.Address.String())
 }
 
@@ -94,7 +94,7 @@ func requireNoInIndices(t *testing.T, fs *filters, f Filter) {
 		require.NotContains(t, byEventSig[f.EventSig], f.ID)
 	}
 	require.NotContains(t, fs.decoders, f.ID)
-	require.NotContains(t, fs.knownDiscriminators, f.Discriminator()[:encodedDiscriminatorHeadLen])
+	require.NotContains(t, fs.knownDiscriminators, f.DiscriminatorRawBytes())
 	require.NotContains(t, fs.knownPrograms, f.Address.String())
 	require.NotContains(t, fs.seqNums, f.ID)
 	require.NotContains(t, fs.filtersToBackfill, f.ID)
@@ -135,9 +135,9 @@ func TestFilters_RegisterFilter(t *testing.T) {
 				},
 			},
 			{
-				Name: "SubkeyPaths",
+				Name: "SubKeyPaths",
 				ModifyField: func(f *Filter) {
-					f.SubkeyPaths = [][]string{{uuid.NewString()}}
+					f.SubKeyPaths = [][]string{{uuid.NewString()}}
 				},
 			},
 		}

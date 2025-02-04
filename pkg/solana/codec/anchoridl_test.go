@@ -27,5 +27,4 @@ func TestIDLTypes_JSONMarshalUnmarshal(t *testing.T) {
 	t.Run("CCIP IDL", func(t *testing.T) {
 		ensureUnmarshal[IDL](t, solana.FetchCCIPRouterIDL())
 	})
-
 }

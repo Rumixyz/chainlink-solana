@@ -137,7 +137,7 @@ func TestFilters_RegisterFilter(t *testing.T) {
 			{
 				Name: "SubKeyPaths",
 				ModifyField: func(f *Filter) {
-					f.SubKeyPaths = [][]string{{uuid.NewString()}}
+					f.SubkeyPaths = [][]string{{uuid.NewString()}}
 				},
 			},
 		}

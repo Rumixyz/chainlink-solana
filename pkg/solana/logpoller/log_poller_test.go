@@ -271,7 +271,7 @@ func TestProcess(t *testing.T) {
 	expectedLog.LogIndex, err = makeLogIndex(txIndex, txLogIndex)
 	require.NoError(t, err)
 	expectedLog.SequenceNum = 1
-	expectedLog.SubKeyValues = []IndexedValue{subKeyValA, subKeyValB}
+	expectedLog.SubkeyValues = []IndexedValue{subKeyValA, subKeyValB}
 
 	expectedLog.Data, err = bin.MarshalBorsh(&event)
 	require.NoError(t, err)
@@ -324,7 +324,7 @@ func TestProcess(t *testing.T) {
 		Address:     addr,
 		EventSig:    eventSig,
 		EventIdl:    idl,
-		SubKeyPaths: [][]string{{"A"}, {"B"}},
+		SubkeyPaths: [][]string{{"A"}, {"B"}},
 	}
 	orm.EXPECT().SelectFilters(mock.Anything).Return([]Filter{filter}, nil).Once()
 	orm.EXPECT().SelectSeqNums(mock.Anything).Return(map[int64]int64{}, nil).Once()

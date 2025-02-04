@@ -1,6 +1,7 @@
 package logpoller
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/codec"
@@ -14,7 +15,7 @@ type Filter struct {
 	EventSig      EventSignature
 	StartingBlock int64
 	EventIdl      EventIdl
-	SubKeyPaths   SubKeyPaths
+	SubkeyPaths   SubKeyPaths
 	Retention     time.Duration
 	MaxLogsKept   int64
 	IsDeleted     bool // only for internal usage. Values set externally are ignored.
@@ -23,7 +24,7 @@ type Filter struct {
 
 func (f Filter) MatchSameLogs(other Filter) bool {
 	return f.Address == other.Address && f.EventSig == other.EventSig &&
-		f.EventIdl.Equal(other.EventIdl) && f.SubKeyPaths.Equal(other.SubKeyPaths)
+		f.EventIdl.Equal(other.EventIdl) && f.SubkeyPaths.Equal(other.SubkeyPaths)
 }
 
 // DiscriminatorRawBytes returns raw discriminator bytes as a string, this string is not base64 encoded and is always len of discriminator which is 8.
@@ -41,7 +42,7 @@ type Log struct {
 	BlockTimestamp time.Time
 	Address        PublicKey
 	EventSig       EventSignature
-	SubKeyValues   IndexedValues
+	SubkeyValues   IndexedValues
 	TxHash         Signature
 	Data           []byte
 	CreatedAt      time.Time

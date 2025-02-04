@@ -37,7 +37,7 @@ func TestLogPollerFilters(t *testing.T) {
 				EventName:     "event",
 				EventSig:      EventSignature{1, 2, 3},
 				StartingBlock: 1,
-				SubKeyPaths:   SubKeyPaths([][]string{{"a", "b"}, {"c"}}),
+				SubkeyPaths:   SubKeyPaths([][]string{{"a", "b"}, {"c"}}),
 				EventIdl: EventIdl{
 					Event: codec.IdlEvent{
 						Name:   "MyEvent",
@@ -56,7 +56,7 @@ func TestLogPollerFilters(t *testing.T) {
 				EventName:     "event",
 				EventSig:      EventSignature{1, 2, 3},
 				StartingBlock: 1,
-				SubKeyPaths:   SubKeyPaths([][]string{}),
+				SubkeyPaths:   SubKeyPaths([][]string{}),
 				Retention:     1000,
 				MaxLogsKept:   3,
 			},
@@ -66,7 +66,7 @@ func TestLogPollerFilters(t *testing.T) {
 				EventName:     "event",
 				EventSig:      EventSignature{1, 2, 3},
 				StartingBlock: 1,
-				SubKeyPaths:   nil,
+				SubkeyPaths:   nil,
 				Retention:     1000,
 				MaxLogsKept:   3,
 			},
@@ -274,7 +274,7 @@ func newRandomFilter(t *testing.T) Filter {
 		EventName:     "event",
 		EventSig:      newRandomEventSignature(t),
 		StartingBlock: 1,
-		SubKeyPaths:   [][]string{{"a", "b"}, {"c"}},
+		SubkeyPaths:   [][]string{{"a", "b"}, {"c"}},
 		Retention:     1000,
 		MaxLogsKept:   3,
 	}

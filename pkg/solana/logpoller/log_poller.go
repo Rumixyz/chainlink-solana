@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/gagliardetto/solana-go/rpc"
@@ -67,10 +68,6 @@ type Service struct {
 }
 
 func New(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
-	return newService(lggr, orm, cl)
-}
-
-func newService(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
 	lggr = logger.Sugared(logger.Named(lggr, "LogPoller"))
 	lp := &Service{
 		orm:     orm,

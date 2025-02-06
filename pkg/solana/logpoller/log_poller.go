@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"iter"
 	"math"
-	"slices"
 	"time"
 
 	"github.com/gagliardetto/solana-go/rpc"
@@ -68,6 +67,10 @@ type Service struct {
 }
 
 func New(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
+	return newService(lggr, orm, cl)
+}
+
+func newService(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
 	lggr = logger.Sugared(logger.Named(lggr, "LogPoller"))
 	lp := &Service{
 		orm:     orm,
@@ -249,7 +252,7 @@ func (lp *Service) backfillFilters(ctx context.Context, filters []Filter, to int
 		return err
 	}
 
-	lp.lggr.Infow("Done backfilling filters", "filters", slices.All(filters))
+	lp.lggr.Infow("Done backfilling filters", "filters", len(filters), "from", minSlot, "to", to)
 	for _, filter := range filters {
 		filterErr := lp.filters.MarkFilterBackfilled(ctx, filter.ID)
 		if filterErr != nil {

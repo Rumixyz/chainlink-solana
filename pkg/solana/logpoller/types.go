@@ -112,9 +112,17 @@ const EventSignatureLength = 8
 
 type EventSignature [EventSignatureLength]byte
 
+func NewEventSignatureFromName(eventName string) EventSignature {
+	return EventSignature(codec.NewDiscriminatorHashPrefix(eventName, false))
+}
+
 // Scan implements Scanner for database/sql.
 func (s *EventSignature) Scan(src interface{}) error {
 	return scanFixedLengthArray("EventSignature", EventSignatureLength, src, s[:])
+}
+
+func (s EventSignature) String() string {
+	return string(s[:])
 }
 
 // Value implements valuer for database/sql.

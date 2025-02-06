@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
-	"slices"
+	"os"
 	"time"
 
 	"github.com/gagliardetto/solana-go/rpc"
@@ -68,6 +68,17 @@ type Service struct {
 }
 
 func New(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
+	logPollerTest := os.Getenv("LOG_POLLER_TEST")
+	switch logPollerTest {
+	case "MIMIC":
+		lggr.Criticalw("Starting in testing mode", "test", logPollerTest)
+		return newMimicingLogPoller(lggr, orm, cl)
+	default:
+		return newService(lggr, orm, cl)
+	}
+}
+
+func newService(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
 	lggr = logger.Sugared(logger.Named(lggr, "LogPoller"))
 	lp := &Service{
 		orm:     orm,

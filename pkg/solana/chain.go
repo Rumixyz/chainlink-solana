@@ -528,7 +528,7 @@ func (c *chain) Start(ctx context.Context) error {
 		startAll := []services.StartClose{c.txm, c.balanceMonitor}
 		if c.cfg.MultiNode.Enabled() {
 			c.lggr.Debug("Starting multinode")
-			startAll = append(startAll, c.multiNode, c.txSender)
+			startAll = append(startAll, c.multiNode, c.txSender, c.lp)
 		}
 		return ms.Start(ctx, startAll...)
 	})

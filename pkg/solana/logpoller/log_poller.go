@@ -264,9 +264,9 @@ func (lp *Service) backfillFilters(ctx context.Context, filters []Filter, to int
 }
 
 func (lp *Service) processBlocksRange(ctx context.Context, addresses []PublicKey, from, to int64) error {
+	lp.lggr.Infow("Processing block range", "from", from, "to", to)
 	// nolint:gosec
 	// G115: integer overflow conversion uint64 -&gt; int64
-	lp.lggr.Infow("Processing block range", "from", from, "to", to)
 	blocks, cleanup, err := lp.loader.BackfillForAddresses(ctx, addresses, uint64(from), uint64(to))
 	if err != nil {
 		return fmt.Errorf("error backfilling filters: %w", err)

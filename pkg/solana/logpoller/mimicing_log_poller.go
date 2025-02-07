@@ -61,14 +61,9 @@ func tryRegisterCCIPMessageSentFilter(ctx context.Context, lp *Service) error {
 		return fmt.Errorf("invalid idl: %w", err)
 	}
 
-	ccipMsgSentIndex := -1
-	for i, event := range idl.Events {
-		if event.Name == "CCIPMessageSent" {
-			ccipMsgSentIndex = i
-			break
-		}
-	}
-
+	ccipMsgSentIndex := slices.IndexFunc(idl.Events, func(event codec.IdlEvent) bool {
+		return event.Name == "CCIPMessageSent"
+	})
 	slot, err := lp.client.SlotHeightWithCommitment(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return fmt.Errorf("failed to get latest slot: %w", err)
@@ -124,7 +119,7 @@ func newWrappedClient(rpc RPCClient, sourceContract solana.PublicKey) *mimicCont
 
 const targetContract = "C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8"
 
-var logs = []string{"Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 invoke [1]", "Program log: Instruction: CcipSend", "Program 11111111111111111111111111111111 invoke [2]", "Program 11111111111111111111111111111111 success", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]", "Program log: Instruction: TransferChecked", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6346 of 144955 compute units", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success", "Program data: F01Jt3u5czkVAAAAAAAAAAEAAAAAAAAAWh4VLLFCqAPcGVT5wq/rwLyiQ9AKf3hfvVmMsnhXVq8PAAAAAAAAABUAAAAAAAAAAQAAAAAAAAABAAAAAAAAANZgmT5JsvDT9xpUL9LlwegHX/nAyE84tlwHTogTVc59RwAAAENDSVAgb24gU29sYW5hIGlzIGF3ZXNvbWUhISBUb2tlbmtlZ1FmZVp5aU53QUpiTmJHS1BGWENXdUJ2ZjlTczYyM1ZRNURBIAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAiBMAAAAAAAAAAAAAAAAAAAAGm4hX/quBhPtof2NGGMA12sQ53BrrO1WYoPAAAAAAAQAAAABepiIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAl3AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 consumed 65756 of 200000 compute units", "Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 success"}
+var logs = []string{"Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 invoke [1]", "Program log: Instruction: CcipSend", "Program 11111111111111111111111111111111 invoke [2]", "Program 11111111111111111111111111111111 success", "Program FeeVB9Q77QvyaENRL1i77BjW6cTkaWwNLjNbZg9JHqpw invoke [2]", "Program log: Instruction: GetFee", "Program FeeVB9Q77QvyaENRL1i77BjW6cTkaWwNLjNbZg9JHqpw consumed 23263 of 144094 compute units", "Program return: FeeVB9Q77QvyaENRL1i77BjW6cTkaWwNLjNbZg9JHqpw BpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAFepiIAAAAAAAl3AwAAAAAAAAAAABUAAAAYHc8QQA0DAAAAAAAAAAAAAAAAAABADQMAAAAAAAAAAAAAAAAAAA==", "Program FeeVB9Q77QvyaENRL1i77BjW6cTkaWwNLjNbZg9JHqpw success", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]", "Program log: Instruction: TransferChecked", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6346 of 117255 compute units", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success", "Program data: F01Jt3u5czkVAAAAAAAAAAEAAAAAAAAApLiJ2pbEis44BGzfl7xek8Ij19Ka4TaiIqF4HOlCTV0PAAAAAAAAABUAAAAAAAAAAQAAAAAAAAABAAAAAAAAAOZGQx39qtvzTlVMsFNekQO+afganyDcB4613MPZXq5mAwAAAAQFBiAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAABUAAAAYHc8QQA0DAAAAAAAAAAAAAAAAAAAGm4hX/quBhPtof2NGGMA12sQ53BrrO1WYoPAAAAAAAQAAAABepiIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAl3AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 consumed 92361 of 200000 compute units", "Program C8WSPj3yyus1YN3yNB6YA5zStYtbjQWtpmKadmvyUXq8 success"}
 
 func (c *mimicContractClient) GetBlockWithOpts(ctx context.Context, slot uint64, opts *rpc.GetBlockOpts) (*rpc.GetBlockResult, error) {
 	blockResult, err := c.RPCClient.GetBlockWithOpts(ctx, slot, opts)

@@ -14,6 +14,16 @@ pub mod contract_reader_interface {
         account.idx = test_idx;
         account.bump = ctx.bumps.data;
 
+        let multi_read1 = &mut ctx.accounts.multi_read1;
+        multi_read1.a = 1;
+        multi_read1.b = 2;
+        multi_read1.c = true;
+
+        let multi_read2 = &mut ctx.accounts.multi_read2;
+        multi_read2.u = "Hello".to_string();
+        multi_read2.v = true;
+        multi_read2.w = [123, 456];
+
         Ok(())
     }
 
@@ -64,6 +74,22 @@ pub struct Initialize<'info> {
         seeds=[b"data".as_ref(), test_idx.to_le_bytes().as_ref()],
         bump)]
     pub data: Account<'info, DataAccount>,
+
+    #[account(
+        init_if_needed,
+        payer = signer,
+        space = size_of::<MultiRead1>() + 8,
+        seeds = [b"multi_read1"],
+        bump)]
+    pub multi_read1: Account<'info, MultiRead1>,
+
+    #[account(
+        init_if_needed,
+        payer = signer,
+        space = size_of::<MultiRead2>() + 8,
+        seeds = [b"multi_read2"],
+        bump)]
+    pub multi_read2: Account<'info, MultiRead2>,
 
     pub system_program: Program<'info, System>,
 }
@@ -196,4 +222,18 @@ pub struct MidLevelStaticTestStruct {
 pub struct InnerStaticTestStruct {
     pub i: i64,
     pub a: Pubkey,
+}
+
+#[account]
+pub struct MultiRead1 {
+    pub a: u8,
+    pub b: i16,
+    pub c: bool,
+}
+
+#[account]
+pub struct MultiRead2 {
+    pub u: String,
+    pub v: bool,
+    pub w: [u64; 2],
 }

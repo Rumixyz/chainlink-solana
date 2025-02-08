@@ -20,6 +20,11 @@ let config_account = VerifierInstructions::get_config_pda(&signed_report, verifi
 #### Creating Instructions
 ```rust
 use verify_sdk::VerifierInstructions;
+use snap::raw::Encoder;
+
+// Reports must be compressed with snappy format prior to being sent to the verifier program 
+let mut encoder = Encoder::new();
+let compressed_report = encoder.compress_vec(&signed_report).expect("Compression failed");
 
 // Create a verify instruction
 let ix = VerifierInstructions::verify(
@@ -28,7 +33,7 @@ let ix = VerifierInstructions::verify(
     &access_controller,   // Access controller account pubkey
     &user,                // User account (must be signer)
     &config_account,      // Report Config PDA derived from report bytes (prevously derived PDA)
-    signed_report,        // Report bytes from Data Streams Off-Chain Server
+    compressed_report,    // Report bytes from Data Streams DON compressed in snappy format
 );
 ```
 

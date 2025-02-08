@@ -2,8 +2,6 @@
 
 A lightweight Rust SDK for creating Solana program instructions to verify Chainlink Data Streams reports, supporting both on-chain and off-chain usage.
 
-If using something other than Rust you will find the Anchor IDL of the Verifier program  
-
 ### Usage
 
 #### Calculating Required PDA Accounts

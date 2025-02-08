@@ -405,10 +405,10 @@ func (s *ContractReaderService) addAccountRead(namespace string, genericName str
 	// Create PDA read binding if PDA prefix or seeds configs are populated
 	if readDefinition.PDADefinition.Prefix != nil || len(readDefinition.PDADefinition.Seeds) > 0 {
 		inputAccountIDLDef = readDefinition.PDADefinition
-		reader = newAccountReadBinding(namespace, genericName, readDefinition.PDADefinition.Prefix, true)
+		reader = newAccountReadBinding(namespace, genericName, readDefinition.PDADefinition.Prefix, readDefinition.ReadType)
 	} else {
 		inputAccountIDLDef = codec.NilIdlTypeDefTy
-		reader = newAccountReadBinding(namespace, genericName, nil, false)
+		reader = newAccountReadBinding(namespace, genericName, nil, config.Account)
 	}
 	if err := s.addCodecDef(true, namespace, genericName, idl, inputAccountIDLDef, readDefinition.InputModifications); err != nil {
 		return err

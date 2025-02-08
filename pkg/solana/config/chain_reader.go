@@ -56,6 +56,9 @@ type ReadType int
 
 const (
 	Account ReadType = iota
+	AccountPDA
+	AccountMulti
+	AccountSplitParams
 	Event
 )
 
@@ -65,6 +68,12 @@ func (r ReadType) String() string {
 		return "Account"
 	case Event:
 		return "Event"
+	case AccountPDA:
+		return "AccountPDA"
+	case AccountMulti:
+		return "AccountMulti"
+	case AccountSplitParams:
+		return "AccountSplitParams"
 	default:
 		return fmt.Sprintf("Unknown(%d)", r)
 	}

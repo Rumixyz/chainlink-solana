@@ -10,6 +10,7 @@ import (
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
 
 type readBinding interface {
@@ -20,6 +21,7 @@ type readBinding interface {
 	CreateType(bool) (any, error)
 	Decode(context.Context, []byte, any) error
 	QueryKey(context.Context, query.KeyFilter, query.LimitAndSort, any) ([]types.Sequence, error)
+	ReadType() config.ReadType
 }
 
 type bindingsRegistry struct {

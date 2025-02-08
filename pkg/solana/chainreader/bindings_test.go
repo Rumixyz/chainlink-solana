@@ -12,6 +12,7 @@ import (
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/query"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
 
 func TestBindings_CreateType(t *testing.T) {
@@ -46,6 +47,10 @@ func TestBindings_CreateType(t *testing.T) {
 
 type mockBinding struct {
 	mock.Mock
+}
+
+func (_m *mockBinding) ReadType() config.ReadType {
+	return config.ReadType(0)
 }
 
 func (_m *mockBinding) SetCodec(_ types.RemoteCodec) {}

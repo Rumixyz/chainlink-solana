@@ -336,3 +336,58 @@ func (obj *InnerStaticTestStruct) UnmarshalWithDecoder(decoder *ag_binary.Decode
 	}
 	return nil
 }
+
+type BillingTokenConfig struct {
+	UsdPerToken TimestampedPackedU224
+}
+
+func (obj BillingTokenConfig) MarshalWithEncoder(encoder *ag_binary.Encoder) (err error) {
+	// Serialize `UsdPerToken` param:
+	err = encoder.Encode(obj.UsdPerToken)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (obj *BillingTokenConfig) UnmarshalWithDecoder(decoder *ag_binary.Decoder) (err error) {
+	// Deserialize `UsdPerToken`:
+	err = decoder.Decode(&obj.UsdPerToken)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type TimestampedPackedU224 struct {
+	Value     [28]uint8
+	Timestamp int64
+}
+
+func (obj TimestampedPackedU224) MarshalWithEncoder(encoder *ag_binary.Encoder) (err error) {
+	// Serialize `Value` param:
+	err = encoder.Encode(obj.Value)
+	if err != nil {
+		return err
+	}
+	// Serialize `Timestamp` param:
+	err = encoder.Encode(obj.Timestamp)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (obj *TimestampedPackedU224) UnmarshalWithDecoder(decoder *ag_binary.Decoder) (err error) {
+	// Deserialize `Value`:
+	err = decoder.Decode(&obj.Value)
+	if err != nil {
+		return err
+	}
+	// Deserialize `Timestamp`:
+	err = decoder.Decode(&obj.Timestamp)
+	if err != nil {
+		return err
+	}
+	return nil
+}

@@ -24,6 +24,7 @@ import (
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	commontestutils "github.com/smartcontractkit/chainlink-common/pkg/loop/testutils"
 	"github.com/smartcontractkit/chainlink-common/pkg/services/servicetest"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
 	. "github.com/smartcontractkit/chainlink-common/pkg/types/interfacetests" //nolint common practice to import test mods with .
@@ -63,14 +64,14 @@ func TestChainComponents(t *testing.T) {
 		RunChainComponentsSolanaTests(t, it)
 	})
 
-	// t.Run("RunChainComponentsInLoopSolanaTests", func(t *testing.T) {
-	// 	t.Parallel()
-	// 	it := &SolanaChainComponentsInterfaceTester[*testing.T]{Helper: helper, testContext: make(map[string]uint64), testContextMu: &sync.RWMutex{}, testIdx: &atomic.Uint64{}}
-	// 	DisableTests(it)
-	// 	wrapped := commontestutils.WrapContractReaderTesterForLoop(it)
-	// 	wrapped.Setup(t)
-	// 	RunChainComponentsInLoopSolanaTests(t, wrapped)
-	// })
+	t.Run("RunChainComponentsInLoopSolanaTests", func(t *testing.T) {
+		t.Parallel()
+		it := &SolanaChainComponentsInterfaceTester[*testing.T]{Helper: helper, testContext: make(map[string]uint64), testContextMu: &sync.RWMutex{}, testIdx: &atomic.Uint64{}}
+		DisableTests(it)
+		wrapped := commontestutils.WrapContractReaderTesterForLoop(it)
+		wrapped.Setup(t)
+		RunChainComponentsInLoopSolanaTests(t, wrapped)
+	})
 }
 
 func DisableTests(it *SolanaChainComponentsInterfaceTester[*testing.T]) {
@@ -665,6 +666,11 @@ func (it *SolanaChainComponentsInterfaceTester[T]) buildContractWriterConfig(t T
 	testIdx := binary.LittleEndian.AppendUint64([]byte{}, idx)
 	fromAddress := solana.MustPrivateKeyFromBase58(solclient.DefaultPrivateKeysSolValidator[1]).PublicKey().String()
 	testStruct := CreateTestStruct(0, it)
+	pubKey1, err := solana.PublicKeyFromBase58("4RzYhbqRjaZHMnfxiPNDVzuimBbAb2FZErQKCLYKrkMe")
+	require.NoError(t, err)
+	pubKey2, err := solana.PublicKeyFromBase58("9mBYSvyF8RBWNdat6SkZE5ipW5gMrBYqZnTShMsnfsub")
+	require.NoError(t, err)
+
 	return chainwriter.ChainWriterConfig{
 		Programs: map[string]chainwriter.ProgramConfig{
 			AnyContractName: {
@@ -714,6 +720,32 @@ func (it *SolanaChainComponentsInterfaceTester[T]) buildContractWriterConfig(t T
 								},
 								Seeds: []chainwriter.Seed{
 									{Static: []byte("multi_read2")},
+								},
+								IsWritable: true,
+								IsSigner:   false,
+							},
+							chainwriter.PDALookups{
+								Name: "BillingTokenConfigWrapper1",
+								PublicKey: chainwriter.AccountConstant{
+									Name:    "ProgramID",
+									Address: primaryProgramPubKey,
+								},
+								Seeds: []chainwriter.Seed{
+									{Static: []byte("token_price")},
+									{Static: pubKey1.Bytes()},
+								},
+								IsWritable: true,
+								IsSigner:   false,
+							},
+							chainwriter.PDALookups{
+								Name: "BillingTokenConfigWrapper2",
+								PublicKey: chainwriter.AccountConstant{
+									Name:    "ProgramID",
+									Address: primaryProgramPubKey,
+								},
+								Seeds: []chainwriter.Seed{
+									{Static: []byte("token_price")},
+									{Static: pubKey2.Bytes()},
 								},
 								IsWritable: true,
 								IsSigner:   false,

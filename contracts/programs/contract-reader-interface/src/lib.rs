@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use std::mem::size_of;
+use solana_program::pubkey;
 
 declare_id!("6AfuXF6HapDUhQfE4nQG9C1SGtA1YjP3icaJyRfU4RyE");
 
@@ -23,6 +24,18 @@ pub mod contract_reader_interface {
         multi_read2.u = "Hello".to_string();
         multi_read2.v = true;
         multi_read2.w = [123, 456];
+        
+        let config1 = &mut ctx.accounts.config_wrapper_account1;
+        config1.config.usd_per_token = TimestampedPackedU224 {
+            value: STATIC_VALUE1,
+            timestamp: STATIC_TIMESTAMP1,
+        };
+        
+        let config2 = &mut ctx.accounts.config_wrapper_account2;
+        config2.config.usd_per_token = TimestampedPackedU224 {
+            value: STATIC_VALUE2,
+            timestamp: STATIC_TIMESTAMP2,
+        };
 
         Ok(())
     }
@@ -90,6 +103,30 @@ pub struct Initialize<'info> {
         seeds = [b"multi_read2"],
         bump)]
     pub multi_read2: Account<'info, MultiRead2>,
+    
+    #[account(
+        init_if_needed,
+        payer = signer,
+        space = 8 + size_of::<BillingTokenConfigWrapper>(),
+        seeds = [
+            b"token_price",
+            ADDRESS_1.as_ref()
+        ],
+        bump
+    )]
+    pub config_wrapper_account1: Account<'info, BillingTokenConfigWrapper>,
+
+    #[account(
+        init_if_needed,
+        payer = signer,
+        space = 8 + size_of::<BillingTokenConfigWrapper>(),
+        seeds = [
+            b"token_price",
+            ADDRESS_2.as_ref()
+        ],
+        bump
+    )]
+    pub config_wrapper_account2: Account<'info, BillingTokenConfigWrapper>,
 
     pub system_program: Program<'info, System>,
 }
@@ -236,4 +273,46 @@ pub struct MultiRead2 {
     pub u: String,
     pub v: bool,
     pub w: [u64; 2],
+}
+
+pub const ADDRESS_1: Pubkey = pubkey!("4RzYhbqRjaZHMnfxiPNDVzuimBbAb2FZErQKCLYKrkMe");
+pub const ADDRESS_2: Pubkey = pubkey!("9mBYSvyF8RBWNdat6SkZE5ipW5gMrBYqZnTShMsnfsub");
+
+pub const STATIC_VALUE1: [u8; 28] = [
+    0x00, 0x11, 0x22, 0x33, 
+    0x44, 0x55, 0x66, 0x77,
+    0x88, 0x99, 0xAA, 0xBB,
+    0xCC, 0xDD, 0xEE, 0xFF,
+    0x00, 0x01, 0x02, 0x03,
+    0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0A, 0x0B
+];
+pub const STATIC_TIMESTAMP1: i64 = 1_700_000_001; 
+
+pub const STATIC_VALUE2: [u8; 28] = [
+    0xAA, 0xBB, 0xCC, 0xDD, 
+    0xEE, 0xFF, 0x11, 0x22,
+    0x33, 0x44, 0x55, 0x66,
+    0x77, 0x88, 0x99, 0x00,
+    0x10, 0x20, 0x30, 0x40,
+    0x50, 0x60, 0x70, 0x80,
+    0x90, 0xA0, 0xB0, 0xC0
+];
+pub const STATIC_TIMESTAMP2: i64 = 1_800_000_002;
+
+#[account]
+#[derive(Debug)]
+pub struct BillingTokenConfigWrapper {
+    pub config: BillingTokenConfig,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct BillingTokenConfig {
+    pub usd_per_token: TimestampedPackedU224,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct TimestampedPackedU224 {
+    pub value: [u8; 28],
+    pub timestamp: i64,
 }

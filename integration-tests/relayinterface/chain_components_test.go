@@ -565,8 +565,10 @@ func (it *SolanaChainComponentsInterfaceTester[T]) buildContractReaderConfig(t T
 							{
 								ChainSpecificName: "MultiRead2",
 								PDADefinition:     codec.PDATypeDef{Prefix: []byte("multi_read2")},
+								ReadType:          config.AccountPDA,
 							},
 						}},
+						ReadType: config.AccountPDA,
 					},
 					MethodReturningUint64: uint64ReadDef,
 					MethodReturningUint64Slice: {

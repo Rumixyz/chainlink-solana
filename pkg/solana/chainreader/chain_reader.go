@@ -339,7 +339,7 @@ func (s *ContractReaderService) initNamespace(namespaces map[string]config.Chain
 			utils.InjectAddressModifier(read.InputModifications, read.OutputModifications)
 
 			switch read.ReadType {
-			case config.Account:
+			case config.Account, config.AccountPDA, config.AccountSplitParams:
 				idlDef, err := codec.FindDefinitionFromIDL(codec.ChainConfigTypeAccountDef, read.ChainSpecificName, nameSpaceDef.IDL)
 				if err != nil {
 					return err
@@ -426,8 +426,8 @@ func (s *ContractReaderService) addMultiAccountRead(namespace string, readDefini
 			return nil, err
 		}
 
-		if mr.ReadType != config.Account {
-			return nil, fmt.Errorf("unexpected read type %q for dynamic hard coder read: %q in namespace: %q", mr.ReadType, mr.ChainSpecificName, namespace)
+		if mr.ReadType != config.AccountPDA {
+			return nil, fmt.Errorf("unexpected read type %q for multi read: %q in namespace: %q", mr.ReadType, mr.ChainSpecificName, namespace)
 		}
 
 		accountIDLDef, isOk := idlDef.(codec.IdlTypeDef)

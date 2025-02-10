@@ -36,7 +36,7 @@ type Common struct {
 	TestConfig     *tc.TestConfig
 	TestEnvDetails *TestEnvDetails
 	ClConfig       map[string]interface{}
-	EnvVariables   map[string]interface{}
+	EnvVariables   map[string]string
 	Env            *environment.Environment
 	DockerEnv      *SolCLClusterTestEnv
 	AccountDetails *AccountDetails

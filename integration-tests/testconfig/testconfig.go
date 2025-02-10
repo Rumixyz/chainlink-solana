@@ -40,7 +40,7 @@ type TestConfig struct {
 	OCR2                  *ocr2_config.Config              `toml:"OCR2"`
 	SolanaConfig          *SolanaConfig                    `toml:"SolanaConfig"`
 	ConfigurationName     string                           `toml:"-"`
-	EnvVariables          map[string]interface{}           `toml:"-"`
+	EnvVariables          map[string]string                `toml:"-"`
 
 	// getter funcs for passing parameters
 	GetChainID func() string

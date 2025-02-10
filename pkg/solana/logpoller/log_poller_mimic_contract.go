@@ -69,7 +69,7 @@ func tryRegisterCCIPMessageSentFilter(ctx context.Context, lp *Service) error {
 		return fmt.Errorf("failed to get latest slot: %w", err)
 	}
 
-	startingBlock := slot - 500 // 8 hours delay
+	startingBlock := slot - 72000 // 8 hours delay
 	version := client.MaxSupportTransactionVersion
 	block, err := lp.client.GetBlockWithOpts(ctx, startingBlock, &rpc.GetBlockOpts{MaxSupportedTransactionVersion: &version})
 	if err != nil {

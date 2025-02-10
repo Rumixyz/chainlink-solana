@@ -1,7 +1,6 @@
 package soak
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,10 +15,10 @@ func TestLogPollerPerformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.EnvVariables = map[string]interface{}{
-		"LOG_POLLER_TEST":         os.Getenv("LOG_POLLER_TEST"), // MIMIC|MOCKER_RATE
-		"SOURCE_CONTRACT_ADDRESS": "",                           // only required for MIMIC test
-		"EVENTS_PER_SEC":          "10",                         // only used by MOCKED_RATE
+	config.EnvVariables = map[string]string{
+		"LOG_POLLER_TEST":         "MOCKER_RATE", // MIMIC|MOCKER_RATE
+		"SOURCE_CONTRACT_ADDRESS": "",            // only required for MIMIC test
+		"EVENTS_PER_SEC":          "10",          // only used by MOCKED_RATE
 	}
 	name := "lp-mimic-performance"
 	state, err := common.NewOCRv2State(t, 1, name, &config)

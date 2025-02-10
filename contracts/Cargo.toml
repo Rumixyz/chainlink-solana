@@ -5,6 +5,7 @@ members = [
   "programs/data-streams/access-controller",
   "programs/access-controller",
   "programs/contract-reader-interface",
+  "programs/contract-reader-interface-secondary",
   "programs/log-read-test",
   "programs/ocr_2",
   "programs/store",

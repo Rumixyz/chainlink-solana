@@ -22,5 +22,5 @@ static_assertions = "1.1.0"
 arrayvec = { version = "1.0.1", path = "../../../crates/arrayvec" }
 
 [dev-dependencies]
-solana-program-test = "1.18.26"
-solana-sdk = "1.18.26"
+solana-program-test = "1.17.26"
+solana-sdk = "1.17.26"

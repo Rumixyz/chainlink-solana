@@ -3,6 +3,7 @@
 A lightweight Rust SDK for creating Solana program instructions to verify Chainlink Data Streams reports, supporting both on-chain and off-chain usage.
 
 If you are using something other than rust - you can use the Anchor IDL as a base to interface with the verifier program.
+
 - Link to the [Anchor IDL](verifier-idl.json).
 
 ### Usage

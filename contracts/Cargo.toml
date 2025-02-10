@@ -1,7 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-  "programs/*",
+  "programs/data-streams/verifier",
+  "programs/data-streams/access-controller",
+  "programs/access-controller",
+  "programs/contract-reader-interface",
+  "programs/log-read-test",
+  "programs/ocr_2",
+  "programs/store",
   "crates/*",
 ]
 

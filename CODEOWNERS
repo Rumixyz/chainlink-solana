@@ -23,3 +23,7 @@
 
 # CI/CD
 /.github/** @smartcontractkit/releng @smartcontractkit/bix-build
+
+# Data Streams
+/contracts/programs/data-streams/**  @smartcontractkit/data-streams-engineers
+/contracts/programs/crates/chainlink-solana-data-streams @smartcontractkit/data-streams-engineers

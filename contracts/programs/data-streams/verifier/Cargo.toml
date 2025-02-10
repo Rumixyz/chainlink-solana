@@ -1,0 +1,32 @@
+[package]
+name = "data_streams_verifier"
+version = "0.4.0"
+description = "Verifier for Data Streams"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "verifier"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = { version = "0.29.0", features = ["init-if-needed"] }
+sha3 = "0.10.6"
+solana-program = "1.18.26"
+snap = "1.1.1"
+ethabi = "18.0.0"
+hex-literal = "0.4.1"
+hex = "0.4.3"
+arrayvec = { version = "1.0.1", path = "../../../crates/arrayvec" }
+access-controller-data-streams = { version = "1.0.1", path = "../access-controller", default-features = false, features = ["cpi"] }
+bytemuck = "1.19.0"
+
+[dev-dependencies]
+solana-program-test = "1.18.26"
+solana-sdk = "1.18.26"

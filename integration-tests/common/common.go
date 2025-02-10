@@ -12,13 +12,13 @@ import (
 	"github.com/lib/pq"
 	"gopkg.in/guregu/null.v4"
 
+	mock_adapter "github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/pkg/helm/mock-adapter"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/pkg/helm/sol"
+
 	ctfconfig "github.com/smartcontractkit/chainlink-testing-framework/lib/config"
 	ctf_test_env "github.com/smartcontractkit/chainlink-testing-framework/lib/docker/test_env"
 	"github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/environment"
 	"github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/pkg/helm/chainlink"
-	mock_adapter "github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/pkg/helm/mock-adapter"
-	"github.com/smartcontractkit/chainlink-testing-framework/lib/k8s/pkg/helm/sol"
-
 	client "github.com/smartcontractkit/chainlink/deployment/environment/nodeclient"
 	"github.com/smartcontractkit/chainlink/integration-tests/docker/test_env"
 
@@ -36,7 +36,7 @@ type Common struct {
 	TestConfig     *tc.TestConfig
 	TestEnvDetails *TestEnvDetails
 	ClConfig       map[string]interface{}
-	EnvConfig      map[string]interface{}
+	EnvVariables   map[string]interface{}
 	Env            *environment.Environment
 	DockerEnv      *SolCLClusterTestEnv
 	AccountDetails *AccountDetails
@@ -112,8 +112,9 @@ func New(testConfig *tc.TestConfig) *Common {
 	privateKeyString := fmt.Sprintf("[%s]", formatBuffer([]byte(privateKey)))
 	publicKey := privateKey.PublicKey().String()
 
-	if *testConfig.Common.Network == "devnet" {
+	if *testConfig.Common.Network == "devnet" || *testConfig.Common.Network == "mainnet" {
 		config = chainConfig.DevnetConfig()
+		config.ChainID = *testConfig.Common.Network
 		privateKeyString = *testConfig.Common.PrivateKey
 
 		if len(*testConfig.Common.RPCURLs) > 0 {
@@ -142,7 +143,8 @@ func New(testConfig *tc.TestConfig) *Common {
 			PrivateKey: privateKeyString,
 			PublicKey:  publicKey,
 		},
-		Env: &environment.Environment{},
+		Env:          &environment.Environment{},
+		EnvVariables: testConfig.EnvVariables,
 	}
 	// provide getters for TestConfig (pointers to chain details)
 	c.TestConfig.GetChainID = func() string { return c.ChainDetails.ChainID }
@@ -414,6 +416,7 @@ func (c *Common) Default(t *testing.T, namespacePrefix string) (*Common, error) 
 		}
 		cd := chainlink.NewWithOverride(0, map[string]any{
 			"toml":     tomlString,
+			"env":      c.EnvVariables,
 			"replicas": *c.TestConfig.OCR2.NodeCount,
 			"chainlink": map[string]interface{}{
 				"resources": map[string]interface{}{
@@ -435,7 +438,8 @@ func (c *Common) Default(t *testing.T, namespacePrefix string) (*Common, error) 
 			},
 		}, c.TestConfig.ChainlinkImage, overrideFn)
 		c.Env = environment.New(c.TestEnvDetails.K8Config).
-			AddHelm(sol.New(nil)).
+			AddHelm(
+				sol.New(nil)).
 			AddHelm(mock_adapter.New(nil)).
 			AddHelm(cd)
 	}

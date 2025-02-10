@@ -34,6 +34,7 @@ type RPCClient interface {
 	GetBlockWithOpts(context.Context, uint64, *rpc.GetBlockOpts) (*rpc.GetBlockResult, error)
 	GetSignaturesForAddressWithOpts(context.Context, solana.PublicKey, *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error)
 	SlotHeightWithCommitment(ctx context.Context, commitment rpc.CommitmentType) (uint64, error)
+	GetBlocks(ctx context.Context, startSlot uint64, endSlot *uint64) (out rpc.BlocksResult, err error)
 }
 
 type WorkerGroup interface {
@@ -140,7 +141,7 @@ func (c *EncodedLogCollector) BackfillForAddresses(ctx context.Context, addresse
 		return nil, func() {}, fmt.Errorf("failed to identify slots to fetch: %w", err)
 	}
 
-	c.lggr.Debugw("Got all slots that need fetching for backfill operations", "addresses", PublicKeysToString(addresses), "fromSlot", fromSlot, "toSlot", toSlot, "slotsToFetch", slotsToFetch)
+	c.lggr.Debugw("Got all slots that need fetching for backfill operations", "addresses", PublicKeysToString(addresses), "fromSlot", fromSlot, "toSlot", toSlot, "slotsToFetch", len(slotsToFetch))
 
 	ctx, cancelJobs := context.WithCancel(ctx)
 	defer func() {

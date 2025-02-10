@@ -73,6 +73,9 @@ func New(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Service {
 	case "MIMIC":
 		lggr.Criticalw("Starting in testing mode", "test", logPollerTest)
 		return newMimicingLogPoller(lggr, orm, cl)
+	case "MOCKER_RATE":
+		lggr.Criticalw("Starting in testing mode", "test", logPollerTest)
+		return newMockedRateLogPoller(lggr, orm, cl)
 	default:
 		return newService(lggr, orm, cl)
 	}
@@ -291,6 +294,7 @@ consumedAllBlocks:
 				break consumedAllBlocks
 			}
 
+			lp.lggr.Infow("Processing block", "block", block.SlotNumber)
 			batch := []Block{block}
 			batch = appendBuffered(blocks, blocksChBuffer, batch)
 			err = lp.processBlocks(ctx, batch)

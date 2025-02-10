@@ -85,6 +85,66 @@ func (_c *RPCClient_GetBlockWithOpts_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// GetBlocks provides a mock function with given fields: ctx, startSlot, endSlot
+func (_m *RPCClient) GetBlocks(ctx context.Context, startSlot uint64, endSlot *uint64) (rpc.BlocksResult, error) {
+	ret := _m.Called(ctx, startSlot, endSlot)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBlocks")
+	}
+
+	var r0 rpc.BlocksResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, *uint64) (rpc.BlocksResult, error)); ok {
+		return rf(ctx, startSlot, endSlot)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, *uint64) rpc.BlocksResult); ok {
+		r0 = rf(ctx, startSlot, endSlot)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(rpc.BlocksResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, *uint64) error); ok {
+		r1 = rf(ctx, startSlot, endSlot)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// RPCClient_GetBlocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBlocks'
+type RPCClient_GetBlocks_Call struct {
+	*mock.Call
+}
+
+// GetBlocks is a helper method to define mock.On call
+//   - ctx context.Context
+//   - startSlot uint64
+//   - endSlot *uint64
+func (_e *RPCClient_Expecter) GetBlocks(ctx interface{}, startSlot interface{}, endSlot interface{}) *RPCClient_GetBlocks_Call {
+	return &RPCClient_GetBlocks_Call{Call: _e.mock.On("GetBlocks", ctx, startSlot, endSlot)}
+}
+
+func (_c *RPCClient_GetBlocks_Call) Run(run func(ctx context.Context, startSlot uint64, endSlot *uint64)) *RPCClient_GetBlocks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64), args[2].(*uint64))
+	})
+	return _c
+}
+
+func (_c *RPCClient_GetBlocks_Call) Return(out rpc.BlocksResult, err error) *RPCClient_GetBlocks_Call {
+	_c.Call.Return(out, err)
+	return _c
+}
+
+func (_c *RPCClient_GetBlocks_Call) RunAndReturn(run func(context.Context, uint64, *uint64) (rpc.BlocksResult, error)) *RPCClient_GetBlocks_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSignaturesForAddressWithOpts provides a mock function with given fields: _a0, _a1, _a2
 func (_m *RPCClient) GetSignaturesForAddressWithOpts(_a0 context.Context, _a1 solana.PublicKey, _a2 *rpc.GetSignaturesForAddressOpts) ([]*rpc.TransactionSignature, error) {
 	ret := _m.Called(_a0, _a1, _a2)

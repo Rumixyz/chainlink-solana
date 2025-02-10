@@ -31,7 +31,7 @@ func newMimicingLogPoller(lggr logger.SugaredLogger, orm ORM, cl RPCClient) *Ser
 		panic(fmt.Errorf("invalid address %s: %w", sourceContractStr, err))
 	}
 
-	wrappedCl := newWrappedClient(cl, sourceContract)
+	wrappedCl := newMimicContractClient(cl, sourceContract)
 	service := newService(lggr, orm, wrappedCl)
 	go func(lp *Service) {
 		for {
@@ -69,7 +69,7 @@ func tryRegisterCCIPMessageSentFilter(ctx context.Context, lp *Service) error {
 		return fmt.Errorf("failed to get latest slot: %w", err)
 	}
 
-	startingBlock := slot - 72000 // 8 hours delay
+	startingBlock := slot - 500 // 8 hours delay
 	version := client.MaxSupportTransactionVersion
 	block, err := lp.client.GetBlockWithOpts(ctx, startingBlock, &rpc.GetBlockOpts{MaxSupportedTransactionVersion: &version})
 	if err != nil {
@@ -109,7 +109,7 @@ type mimicContractClient struct {
 	sourceContractPub solana.PublicKey
 }
 
-func newWrappedClient(rpc RPCClient, sourceContract solana.PublicKey) *mimicContractClient {
+func newMimicContractClient(rpc RPCClient, sourceContract solana.PublicKey) *mimicContractClient {
 	return &mimicContractClient{
 		RPCClient:         rpc,
 		sourceContract:    sourceContract.String(),

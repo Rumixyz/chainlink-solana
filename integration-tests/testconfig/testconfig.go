@@ -3,13 +3,12 @@ package testconfig
 import (
 	"embed"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
-
-	"errors"
 
 	"github.com/barkimedes/go-deepcopy"
 	"github.com/google/uuid"
@@ -41,6 +40,7 @@ type TestConfig struct {
 	OCR2                  *ocr2_config.Config              `toml:"OCR2"`
 	SolanaConfig          *SolanaConfig                    `toml:"SolanaConfig"`
 	ConfigurationName     string                           `toml:"-"`
+	EnvVariables          map[string]interface{}           `toml:"-"`
 
 	// getter funcs for passing parameters
 	GetChainID func() string
@@ -422,7 +422,7 @@ func (c *Common) Validate() error {
 		if c.DevnetImage == nil {
 			return fmt.Errorf("devnet_image must be set")
 		}
-	case "devnet":
+	case "devnet", "mainnet":
 		if c.PrivateKey == nil {
 			return fmt.Errorf("private_key must be set")
 		}
@@ -430,11 +430,11 @@ func (c *Common) Validate() error {
 			return fmt.Errorf("rpc_url must be set")
 		}
 		if c.WsURLs == nil {
-			return fmt.Errorf("rpc_url must be set")
+			return fmt.Errorf("ws rpc_url must be set")
 		}
 
 	default:
-		return fmt.Errorf("network must be either 'localnet' or 'devnet'")
+		return fmt.Errorf("network must be either 'localnet' or 'devnet' or 'mainnet'")
 	}
 
 	if c.InsideK8s == nil {

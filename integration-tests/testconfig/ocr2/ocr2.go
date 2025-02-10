@@ -13,8 +13,8 @@ type Config struct {
 }
 
 func (o *Config) Validate() error {
-	if o.NodeCount != nil && *o.NodeCount < 3 {
-		return errors.New("node_count must be set and cannot be less than 3")
+	if o.NodeCount != nil && *o.NodeCount < 1 {
+		return errors.New("node_count must be set and cannot be less than 1")
 	}
 
 	if o.TestDuration == nil {

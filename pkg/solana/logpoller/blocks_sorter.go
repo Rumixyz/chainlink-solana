@@ -5,11 +5,19 @@ import (
 	"context"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const blocksChBuffer = 16
+
+var promPoolRPCNodeHighestSeenBlock = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "block_sorter_queue",
+	Help: "The highest seen block for the given RPC node",
+}, []string{})
 
 type blocksSorter struct {
 	// service state management
@@ -69,6 +77,7 @@ func (p *blocksSorter) readBlocks(ctx context.Context) {
 			}
 
 			p.mu.Lock()
+			promPoolRPCNodeHighestSeenBlock.WithLabelValues().Set(float64(len(p.readyBlocks)))
 			p.readyBlocks[block.SlotNumber] = block
 			p.mu.Unlock()
 			// try leaving a msg that new block is ready
@@ -110,6 +119,7 @@ func (p *blocksSorter) readNextReadyBlock() *Block {
 
 	slotNumber := element.Value.(uint64)
 	block, ok := p.readyBlocks[slotNumber]
+	promPoolRPCNodeHighestSeenBlock.WithLabelValues().Set(float64(len(p.readyBlocks)))
 	if !ok {
 		return nil
 	}

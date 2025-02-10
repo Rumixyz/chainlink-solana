@@ -8,6 +8,7 @@ If you are using something other than rust - you can use the Anchor IDL as a bas
 ### Usage
 
 #### Calculating Required PDA Accounts
+
 ```rust
 use verify_sdk::VerifierInstructions;
 
@@ -21,11 +22,12 @@ let config_account = VerifierInstructions::get_config_pda(&signed_report, verifi
 ```
 
 #### Creating Instructions
+
 ```rust
 use verify_sdk::VerifierInstructions;
 use snap::raw::Encoder;
 
-// Reports must be compressed with snappy format prior to being sent to the verifier program 
+// Reports must be compressed with snappy format prior to being sent to the verifier program
 let mut encoder = Encoder::new();
 let compressed_report = encoder.compress_vec(&signed_report).expect("Compression failed");
 
@@ -41,6 +43,7 @@ let ix = VerifierInstructions::verify(
 ```
 
 ### Examples
+
 - [On-Chain Integration](https://docs.chain.link/data-streams/tutorials/streams-direct/solana-onchain-report-verification)
 - [Off-Chain Integration](https://docs.chain.link/data-streams/tutorials/streams-direct/solana-offchain-report-verification)
 

@@ -240,6 +240,31 @@ func RunContractReaderInLoopTests[T WrappedTestingT[T]](t T, it ChainComponentsI
 			},
 		},
 		{
+			Name: ContractReaderGetLatestValueUsingMultiReader,
+			Test: func(t T) {
+				cr := it.GetContractReader(t)
+				bindings := it.GetBindings(t)
+				ctx := tests.Context(t)
+
+				bound := BindingsByName(bindings, AnyContractName)[0]
+
+				require.NoError(t, cr.Bind(ctx, bindings))
+
+				type MultiReadResult struct {
+					A uint8
+					B int16
+					U string
+					V bool
+				}
+
+				mRR := MultiReadResult{}
+				require.NoError(t, cr.GetLatestValue(ctx, bound.ReadIdentifier(MultiRead), primitives.Unconfirmed, nil, &mRR))
+
+				expectedMRR := MultiReadResult{A: 1, B: 2, U: "Hello", V: true}
+				require.Equal(t, expectedMRR, mRR)
+			},
+		},
+		{
 			Name: ContractReaderGetLatestValueUsingMultiReaderWithParmsReuse,
 			Test: func(t T) {
 				cr := it.GetContractReader(t)

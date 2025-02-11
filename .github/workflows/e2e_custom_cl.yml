@@ -80,7 +80,7 @@ jobs:
     steps:
       - name: Check if image exists
         id: check-image
-        uses: smartcontractkit/chainlink-github-actions/docker/image-exists@fc3e0df622521019f50d772726d6bf8dc919dd38 # v2.3.19
+        uses: smartcontractkit/chainlink-github-actions/docker/image-exists@5a7543e418aa2dc57b75e85581eae30820a8c9ae
         with:
           repository: chainlink-solana-tests
           tag: ${{ github.sha }}
@@ -210,7 +210,7 @@ jobs:
           fi
       - name: Check if image exists
         id: check-image
-        uses: smartcontractkit/chainlink-github-actions/docker/image-exists@b49a9d04744b0237908831730f8553f26d73a94b # v2.3.17
+        uses: smartcontractkit/chainlink-github-actions/docker/image-exists@5a7543e418aa2dc57b75e85581eae30820a8c9ae
         with:
           repository: chainlink
           tag: solana.${{ github.sha }}
@@ -218,7 +218,7 @@ jobs:
           AWS_ROLE_TO_ASSUME: ${{ secrets.QA_AWS_ROLE_TO_ASSUME }}
       - name: Build Image
         if: steps.check-image.outputs.exists == 'false'
-        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/build-image@b49a9d04744b0237908831730f8553f26d73a94b # v2.3.17
+        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/build-image@5a7543e418aa2dc57b75e85581eae30820a8c9ae
         with:
           should_checkout: true
           cl_repo: smartcontractkit/chainlink
@@ -318,7 +318,7 @@ jobs:
           # shellcheck disable=SC2086
           echo "BASE64_CONFIG_OVERRIDE=$BASE64_CONFIG_OVERRIDE" >> $GITHUB_ENV
       - name: Run Tests
-        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/run-tests@00c164251be2a7c5b2b23a6e5f7014982f232c14 # v2.3.31
+        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/run-tests@5a7543e418aa2dc57b75e85581eae30820a8c9ae
         with:
           test_command_to_run: cd ./integration-tests && go test -timeout 24h -count=1 -run TestSolanaOCRV2Smoke -json $(args) ./smoke 2>&1 | tee /tmp/gotest.log | gotestloghelper -ci=true -singlepackage=true -hidepassingtests=false -hidepassinglogs=false
           test_download_vendor_packages_command: cd ./integration-tests && go mod download
@@ -402,7 +402,7 @@ jobs:
           # shellcheck disable=SC2086
           echo "BASE64_CONFIG_OVERRIDE=$BASE64_CONFIG_OVERRIDE" >> $GITHUB_ENV
       - name: Run Upgrade Test
-        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/run-tests@00c164251be2a7c5b2b23a6e5f7014982f232c14 # v2.3.31
+        uses: smartcontractkit/chainlink-github-actions/chainlink-testing-framework/run-tests@5a7543e418aa2dc57b75e85581eae30820a8c9ae
         with:
           test_command_to_run: cd ./integration-tests && go test -timeout 24h -count=1 -run TestSolanaOCRV2UpgradeSmoke -json $(args) ./smoke 2>&1 | tee /tmp/gotest.log | gotestloghelper -ci=true -singlepackage=true -hidepassingtests=false -hidepassinglogs=false
           test_download_vendor_packages_command: cd ./integration-tests && go mod download

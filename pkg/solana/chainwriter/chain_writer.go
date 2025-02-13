@@ -3,13 +3,16 @@ package chainwriter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/gagliardetto/solana-go"
 	addresslookuptable "github.com/gagliardetto/solana-go/programs/address-lookup-table"
 	"github.com/gagliardetto/solana-go/rpc"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/tokens"
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -26,7 +29,7 @@ const ServiceName = "SolanaChainWriter"
 
 type SolanaChainWriterService struct {
 	lggr   logger.Logger
-	reader client.Reader
+	client client.MultiClient
 	txm    txm.TxManager
 	ge     fees.Estimator
 	config ChainWriterConfig
@@ -58,15 +61,16 @@ type MethodConfig struct {
 	ChainSpecificName  string                      `json:"chainSpecificName"`
 	LookupTables       LookupTables                `json:"lookupTables,omitempty"`
 	Accounts           []Lookup                    `json:"accounts"`
+	ATAs               []ATALookup                 `json:"atas,omitempty"`
 	// Location in the args where the debug ID is stored
 	DebugIDLocation string `json:"debugIDLocation,omitempty"`
 	ArgsTransform   string `json:"argsTransform,omitempty"`
 }
 
-func NewSolanaChainWriterService(logger logger.Logger, reader client.Reader, txm txm.TxManager, ge fees.Estimator, config ChainWriterConfig) (*SolanaChainWriterService, error) {
+func NewSolanaChainWriterService(logger logger.Logger, client client.MultiClient, txm txm.TxManager, ge fees.Estimator, config ChainWriterConfig) (*SolanaChainWriterService, error) {
 	w := SolanaChainWriterService{
 		lggr:   logger,
-		reader: reader,
+		client: client,
 		txm:    txm,
 		ge:     ge,
 		config: config,
@@ -82,6 +86,7 @@ func NewSolanaChainWriterService(logger logger.Logger, reader client.Reader, txm
 		return nil, fmt.Errorf("%w: failed to create codec", err)
 	}
 
+	w.lggr.Info("SolanaChainWriterService initialized")
 	return &w, nil
 }
 
@@ -146,10 +151,10 @@ for Solana transactions. It handles constant addresses, dynamic lookups, program
 ### Error Handling:
 - Errors are wrapped with the `debugID` for easier tracing.
 */
-func GetAddresses(ctx context.Context, args any, accounts []Lookup, derivedTableMap map[string]map[string][]*solana.AccountMeta, reader client.Reader) ([]*solana.AccountMeta, error) {
+func GetAddresses(ctx context.Context, args any, accounts []Lookup, derivedTableMap map[string]map[string][]*solana.AccountMeta, client client.MultiClient) ([]*solana.AccountMeta, error) {
 	var addresses []*solana.AccountMeta
 	for _, accountConfig := range accounts {
-		meta, err := accountConfig.Resolve(ctx, args, derivedTableMap, reader)
+		meta, err := accountConfig.Resolve(ctx, args, derivedTableMap, client)
 		if accountConfig.Optional && err != nil {
 			// skip optional accounts if they are not found
 			continue
@@ -223,6 +228,77 @@ func (s *SolanaChainWriterService) FilterLookupTableAddresses(
 	return filteredLookupTables
 }
 
+// CreateATAs first checks if a specified location exists, then checks if the accounts derived from the
+// ATALookups in the ChainWriter's configuration exist on-chain and creates them if they do not.
+func CreateATAs(ctx context.Context, args any, lookups []ATALookup, derivedTableMap map[string]map[string][]*solana.AccountMeta, client client.MultiClient, idl string, feePayer solana.PublicKey, logger logger.Logger) ([]solana.Instruction, error) {
+	createATAInstructions := []solana.Instruction{}
+	for _, lookup := range lookups {
+		// Check if location exists
+		if lookup.Location != "" {
+			_, err := GetValuesAtLocation(args, lookup.Location)
+			if err != nil {
+				// field doesn't exist, so ignore ATA creation
+				if errors.Is(err, errFieldNotFound) {
+					logger.Debugw("field not found, skipping ATA creation", "location", lookup.Location)
+					continue
+				}
+				return nil, fmt.Errorf("error getting values at location: %w", err)
+			}
+		}
+		walletAddresses, err := GetAddresses(ctx, args, []Lookup{lookup.WalletAddress}, derivedTableMap, client)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving wallet address: %w", err)
+		}
+		if len(walletAddresses) != 1 {
+			return nil, fmt.Errorf("expected exactly one wallet address, got %d", len(walletAddresses))
+		}
+		wallet := walletAddresses[0].PublicKey
+
+		tokenPrograms, err := GetAddresses(ctx, args, []Lookup{lookup.TokenProgram}, derivedTableMap, client)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving token program address: %w", err)
+		}
+
+		mints, err := GetAddresses(ctx, args, []Lookup{lookup.MintAddress}, derivedTableMap, client)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving mint address: %w", err)
+		}
+		if len(tokenPrograms) != len(mints) {
+			return nil, fmt.Errorf("expected equal number of token programs and mints, got %d tokenPrograms and %d mints", len(tokenPrograms), len(mints))
+		}
+
+		for i := range tokenPrograms {
+			tokenProgram := tokenPrograms[i].PublicKey
+			mint := mints[i].PublicKey
+
+			ataAddress, _, err := tokens.FindAssociatedTokenAddress(tokenProgram, mint, wallet)
+			if err != nil {
+				return nil, fmt.Errorf("error deriving ATA: %w", err)
+			}
+
+			_, err = client.GetAccountInfoWithOpts(ctx, ataAddress, &rpc.GetAccountInfoOpts{
+				Encoding:   "base64",
+				Commitment: rpc.CommitmentFinalized,
+			})
+			if err == nil {
+				logger.Info("ATA already exists, skipping creation.", lookup.Location)
+				continue
+			}
+			if !strings.Contains(err.Error(), "not found") {
+				return nil, fmt.Errorf("error reading account info for ATA: %w", err)
+			}
+
+			ins, _, err := tokens.CreateAssociatedTokenAccount(tokenProgram, mint, wallet, feePayer)
+			if err != nil {
+				return nil, fmt.Errorf("error creating associated token account: %w", err)
+			}
+			createATAInstructions = append(createATAInstructions, ins)
+		}
+	}
+
+	return createATAInstructions, nil
+}
+
 // SubmitTransaction builds, encodes, and enqueues a transaction using the provided program
 // configuration and method details. It relies on the configured IDL, account lookups, and
 // lookup tables to gather the necessary accounts and data. The function retrieves the latest
@@ -272,8 +348,9 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		return errorWithDebugID(fmt.Errorf("error getting lookup tables: %w", err), debugID)
 	}
 
+	s.lggr.Debug("Resolving account addresses", "contract", contractName, "method", method)
 	// Resolve account metas
-	accounts, err := GetAddresses(ctx, args, methodConfig.Accounts, derivedTableMap, s.reader)
+	accounts, err := GetAddresses(ctx, args, methodConfig.Accounts, derivedTableMap, s.client)
 	if err != nil {
 		return errorWithDebugID(fmt.Errorf("error resolving account addresses: %w", err), debugID)
 	}
@@ -283,6 +360,13 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		return errorWithDebugID(fmt.Errorf("error parsing fee payer address: %w", err), debugID)
 	}
 
+	s.lggr.Debug("Creating ATAs", "contract", contractName, "method", method)
+	createATAinstructions, err := CreateATAs(ctx, args, methodConfig.ATAs, derivedTableMap, s.client, programConfig.IDL, feePayer, s.lggr)
+	if err != nil {
+		return errorWithDebugID(fmt.Errorf("error resolving account addresses: %w", err), debugID)
+	}
+
+	s.lggr.Debug("Filtering lookup table addresses", "contract", contractName, "method", method)
 	// Filter the lookup table addresses based on which accounts are actually used
 	filteredLookupTableMap := s.FilterLookupTableAddresses(accounts, derivedTableMap, staticTableMap)
 
@@ -292,16 +376,11 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		if tfErr != nil {
 			return errorWithDebugID(fmt.Errorf("error finding transform function: %w", tfErr), debugID)
 		}
+		s.lggr.Debug("Applying args transformation", "contract", contractName, "method", method)
 		args, err = transformFunc(ctx, s, args, accounts, toAddress)
 		if err != nil {
 			return errorWithDebugID(fmt.Errorf("error transforming args: %w", err), debugID)
 		}
-	}
-
-	// Fetch latest blockhash
-	blockhash, err := s.reader.LatestBlockhash(ctx)
-	if err != nil {
-		return errorWithDebugID(fmt.Errorf("error fetching latest blockhash: %w", err), debugID)
 	}
 
 	// Prepare transaction
@@ -310,6 +389,7 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		return errorWithDebugID(fmt.Errorf("error parsing program ID: %w", err), debugID)
 	}
 
+	s.lggr.Debug("Encoding transaction payload", "contract", contractName, "method", method)
 	encodedPayload, err := s.encoder.Encode(ctx, args, codec.WrapItemType(true, contractName, method))
 
 	if err != nil {
@@ -319,10 +399,21 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 	discriminator := GetDiscriminator(methodConfig.ChainSpecificName)
 	encodedPayload = append(discriminator[:], encodedPayload...)
 
+	if len(createATAinstructions) > 0 {
+		err = s.handleATACreation(ctx, createATAinstructions, methodConfig, contractName, method, feePayer)
+		if err != nil {
+			return errorWithDebugID(fmt.Errorf("error creating ATAs: %w", err), debugID)
+		}
+	}
+
+	// Fetch latest blockhash
+	blockhash, err := s.client.LatestBlockhash(ctx)
+	if err != nil {
+		return errorWithDebugID(fmt.Errorf("error fetching latest blockhash: %w", err), debugID)
+	}
+
 	tx, err := solana.NewTransaction(
-		[]solana.Instruction{
-			solana.NewInstruction(programID, accounts, encodedPayload),
-		},
+		[]solana.Instruction{solana.NewInstruction(programID, accounts, encodedPayload)},
 		blockhash.Value.Blockhash,
 		solana.TransactionPayer(feePayer),
 		solana.TransactionAddressTables(filteredLookupTableMap),
@@ -331,6 +422,7 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		return errorWithDebugID(fmt.Errorf("error constructing transaction: %w", err), debugID)
 	}
 
+	s.lggr.Debug("Sending main transaction", "contract", contractName, "method", method)
 	// Enqueue transaction
 	if err = s.txm.Enqueue(ctx, methodConfig.FromAddress, tx, &transactionID, blockhash.Value.LastValidBlockHeight); err != nil {
 		return errorWithDebugID(fmt.Errorf("error enqueuing transaction: %w", err), debugID)
@@ -341,6 +433,7 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 
 // GetTransactionStatus returns the current status of a transaction in the underlying chain's TXM.
 func (s *SolanaChainWriterService) GetTransactionStatus(ctx context.Context, transactionID string) (types.TransactionStatus, error) {
+	s.lggr.Debug("Fetching transaction status", "transactionID", transactionID)
 	return s.txm.GetTransactionStatus(ctx, transactionID)
 }
 
@@ -350,6 +443,7 @@ func (s *SolanaChainWriterService) GetFeeComponents(ctx context.Context) (*types
 		return nil, fmt.Errorf("gas estimator not available")
 	}
 
+	s.lggr.Debug("Fetching fee components")
 	fee := s.ge.BaseComputeUnitPrice()
 	return &types.ChainFeeComponents{
 		ExecutionFee:        new(big.Int).SetUint64(fee),
@@ -386,7 +480,7 @@ func (s *SolanaChainWriterService) ResolveLookupTables(ctx context.Context, args
 
 	// Read static lookup tables
 	for _, staticTable := range lookupTables.StaticLookupTables {
-		addressses, err := getLookupTableAddresses(ctx, s.reader, staticTable)
+		addressses, err := getLookupTableAddresses(ctx, s.client, staticTable)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error fetching static lookup table address: %w", err)
 		}
@@ -398,7 +492,7 @@ func (s *SolanaChainWriterService) ResolveLookupTables(ctx context.Context, args
 
 func (s *SolanaChainWriterService) loadTable(ctx context.Context, args any, rlt DerivedLookupTable) (map[string]map[string][]*solana.AccountMeta, error) {
 	// Resolve all addresses specified by the identifier
-	lookupTableAddresses, err := GetAddresses(ctx, args, []Lookup{rlt.Accounts}, nil, s.reader)
+	lookupTableAddresses, err := GetAddresses(ctx, args, []Lookup{rlt.Accounts}, nil, s.client)
 	if err != nil {
 		return nil, fmt.Errorf("error resolving addresses for lookup table: %w", err)
 	}
@@ -409,7 +503,7 @@ func (s *SolanaChainWriterService) loadTable(ctx context.Context, args any, rlt 
 	// Iterate over each address of the lookup table
 	for _, addressMeta := range lookupTableAddresses {
 		// Read the full list of addresses from the lookup table
-		addresses, err := getLookupTableAddresses(ctx, s.reader, addressMeta.PublicKey)
+		addresses, err := getLookupTableAddresses(ctx, s.client, addressMeta.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching lookup table address: %s, error: %w", addressMeta.PublicKey, err)
 		}
@@ -432,9 +526,9 @@ func (s *SolanaChainWriterService) loadTable(ctx context.Context, args any, rlt 
 	return resultMap, nil
 }
 
-func getLookupTableAddresses(ctx context.Context, reader client.Reader, tableAddress solana.PublicKey) (solana.PublicKeySlice, error) {
+func getLookupTableAddresses(ctx context.Context, client client.MultiClient, tableAddress solana.PublicKey) (solana.PublicKeySlice, error) {
 	// Fetch the account info for the static table
-	accountInfo, err := reader.GetAccountInfoWithOpts(ctx, tableAddress, &rpc.GetAccountInfoOpts{
+	accountInfo, err := client.GetAccountInfoWithOpts(ctx, tableAddress, &rpc.GetAccountInfoOpts{
 		Encoding:   "base64",
 		Commitment: rpc.CommitmentFinalized,
 	})

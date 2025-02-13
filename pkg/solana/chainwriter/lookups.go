@@ -88,6 +88,16 @@ type AccountsFromLookupTable struct {
 	IncludeIndexes  []int  `json:"includeIndexes"`
 }
 
+type ATALookup struct {
+	// Field that determines whether the ATA lookup is necessary. Basically
+	// just need to check this field exists. Dot separated location.
+	Location string
+	// If the field exists, initialize a ATA account using the Wallet, Token Program, and Mint addresses below
+	WalletAddress Lookup
+	TokenProgram  Lookup
+	MintAddress   Lookup
+}
+
 func (l Lookup) validate() error {
 	count := 0
 	for _, v := range []bool{l.AccountConstant != nil, l.AccountLookup != nil, l.PDALookups != nil, l.AccountsFromLookupTable != nil} {
@@ -101,7 +111,7 @@ func (l Lookup) validate() error {
 	return nil
 }
 
-func (l Lookup) Resolve(ctx context.Context, args any, derivedTableMap map[string]map[string][]*solana.AccountMeta, reader client.Reader) ([]*solana.AccountMeta, error) {
+func (l Lookup) Resolve(ctx context.Context, args any, derivedTableMap map[string]map[string][]*solana.AccountMeta, client client.MultiClient) ([]*solana.AccountMeta, error) {
 	// could update this in the future to validate the entire config at initialization time recursively.
 	err := l.validate()
 	if err != nil {
@@ -112,7 +122,7 @@ func (l Lookup) Resolve(ctx context.Context, args any, derivedTableMap map[strin
 	} else if l.AccountLookup != nil {
 		return l.AccountLookup.Resolve(args)
 	} else if l.PDALookups != nil {
-		return l.PDALookups.Resolve(ctx, args, derivedTableMap, reader)
+		return l.PDALookups.Resolve(ctx, args, derivedTableMap, client)
 	} else if l.AccountsFromLookupTable != nil {
 		return l.AccountsFromLookupTable.Resolve(derivedTableMap)
 	}
@@ -222,13 +232,13 @@ func (alt AccountsFromLookupTable) Resolve(derivedTableMap map[string]map[string
 	return result, nil
 }
 
-func (pda PDALookups) Resolve(ctx context.Context, args any, derivedTableMap map[string]map[string][]*solana.AccountMeta, reader client.Reader) ([]*solana.AccountMeta, error) {
-	publicKeys, err := GetAddresses(ctx, args, []Lookup{pda.PublicKey}, derivedTableMap, reader)
+func (pda PDALookups) Resolve(ctx context.Context, args any, derivedTableMap map[string]map[string][]*solana.AccountMeta, client client.MultiClient) ([]*solana.AccountMeta, error) {
+	publicKeys, err := GetAddresses(ctx, args, []Lookup{pda.PublicKey}, derivedTableMap, client)
 	if err != nil {
 		return nil, fmt.Errorf("error getting public key for PDALookups: %w", err)
 	}
 
-	seeds, err := getSeedBytesCombinations(ctx, pda, args, derivedTableMap, reader)
+	seeds, err := getSeedBytesCombinations(ctx, pda, args, derivedTableMap, client)
 	if err != nil {
 		return nil, fmt.Errorf("error getting seeds for PDALookups: %w", err)
 	}
@@ -245,7 +255,7 @@ func (pda PDALookups) Resolve(ctx context.Context, args any, derivedTableMap map
 	// If a decoded location is specified, fetch the data at that location
 	var result []*solana.AccountMeta
 	for _, accountMeta := range pdas {
-		accountInfo, err := reader.GetAccountInfoWithOpts(ctx, accountMeta.PublicKey, &rpc.GetAccountInfoOpts{
+		accountInfo, err := client.GetAccountInfoWithOpts(ctx, accountMeta.PublicKey, &rpc.GetAccountInfoOpts{
 			Encoding:   "base64",
 			Commitment: rpc.CommitmentFinalized,
 		})
@@ -302,7 +312,7 @@ func getSeedBytesCombinations(
 	lookup PDALookups,
 	args any,
 	derivedTableMap map[string]map[string][]*solana.AccountMeta,
-	reader client.Reader,
+	client client.MultiClient,
 ) ([][][]byte, error) {
 	allCombinations := [][][]byte{
 		{},
@@ -334,7 +344,7 @@ func getSeedBytesCombinations(
 				}
 			} else {
 				// Get address seeds from the lookup
-				seedAddresses, err := GetAddresses(ctx, args, []Lookup{dynamicSeed}, derivedTableMap, reader)
+				seedAddresses, err := GetAddresses(ctx, args, []Lookup{dynamicSeed}, derivedTableMap, client)
 				if err != nil {
 					return nil, fmt.Errorf("error getting address seed: %w", err)
 				}

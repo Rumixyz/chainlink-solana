@@ -1,6 +1,7 @@
 package relayinterface
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/tokens"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
@@ -44,7 +46,7 @@ func TestLookup(t *testing.T) {
 				Location: "test",
 			},
 		}
-		_, err := lookupConfig.Resolve(tests.Context(t), nil, nil, nil)
+		_, err := lookupConfig.Resolve(tests.Context(t), nil, nil, client.MultiClient{})
 		require.Contains(t, err.Error(), "exactly one of AccountConstant, AccountLookup, PDALookups, or AccountsFromLookupTable must be specified, got 2")
 	})
 }
@@ -302,7 +304,7 @@ func TestPDALookups(t *testing.T) {
 			IsWritable: true,
 		}}
 
-		result, err := pdaLookup.Resolve(ctx, nil, nil, nil)
+		result, err := pdaLookup.Resolve(ctx, nil, nil, client.MultiClient{})
 		require.NoError(t, err)
 		require.Equal(t, expectedMeta, result)
 	})
@@ -337,7 +339,7 @@ func TestPDALookups(t *testing.T) {
 			"another_seed": seed2,
 		}
 
-		result, err := pdaLookup.Resolve(ctx, args, nil, nil)
+		result, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})
 		require.NoError(t, err)
 		require.Equal(t, expectedMeta, result)
 	})
@@ -357,7 +359,7 @@ func TestPDALookups(t *testing.T) {
 			"test_seed": []byte("data"),
 		}
 
-		_, err := pdaLookup.Resolve(ctx, args, nil, nil)
+		_, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "key not found")
 	})
@@ -393,7 +395,7 @@ func TestPDALookups(t *testing.T) {
 			"another_seed": seed2,
 		}
 
-		result, err := pdaLookup.Resolve(ctx, args, nil, nil)
+		result, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})
 		require.NoError(t, err)
 		require.Equal(t, expectedMeta, result)
 	})
@@ -431,7 +433,7 @@ func TestPDALookups(t *testing.T) {
 			"array_seed":  arraySeed,
 		}
 
-		result, err := pdaLookup.Resolve(ctx, args, nil, nil)
+		result, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})
 		require.NoError(t, err)
 		require.Equal(t, expectedMeta, result)
 	})
@@ -471,7 +473,7 @@ func TestPDALookups(t *testing.T) {
 			"seed2": arraySeed2,
 		}
 
-		result, err := pdaLookup.Resolve(ctx, args, nil, nil)
+		result, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})
 		require.NoError(t, err)
 		require.Equal(t, expectedMeta, result)
 	})
@@ -492,13 +494,18 @@ func TestLookupTables(t *testing.T) {
 	solanaClient, err := client.NewClient(url, cfg, 5*time.Second, nil)
 	require.NoError(t, err)
 
+	multiClient := *client.NewMultiClient(func(context.Context) (client.ReaderWriter, error) {
+		return solanaClient, nil
+	})
+
 	loader := solanautils.NewStaticLoader[client.ReaderWriter](solanaClient)
 	mkey := keyMocks.NewSimpleKeystore(t)
 	lggr := logger.Test(t)
 
 	txm := txm.NewTxm("localnet", loader, nil, cfg, mkey, lggr)
 
-	cw, err := chainwriter.NewSolanaChainWriterService(nil, solanaClient, txm, nil, chainwriter.ChainWriterConfig{})
+	cw, err := chainwriter.NewSolanaChainWriterService(logger.Test(t), multiClient, txm, nil, chainwriter.ChainWriterConfig{})
+	require.NoError(t, err)
 
 	t.Run("StaticLookup table resolves properly", func(t *testing.T) {
 		pubKeys := chainwriter.CreateTestPubKeys(t, 8)
@@ -653,4 +660,241 @@ func TestLookupTables(t *testing.T) {
 			require.Equal(t, lookupKeys[i], address.PublicKey)
 		}
 	})
+}
+
+func TestCreateATAs(t *testing.T) {
+	ctx := tests.Context(t)
+
+	sender, err := solana.NewRandomPrivateKey()
+	require.NoError(t, err)
+
+	feePayer := sender.PublicKey()
+
+	url, _ := utils.SetupTestValidatorWithAnchorPrograms(t, sender.PublicKey().String(), []string{"contract-reader-interface"})
+	rpcClient := rpc.New(url)
+
+	utils.FundAccounts(t, []solana.PrivateKey{sender}, rpcClient)
+
+	cfg := config.NewDefault()
+	solanaClient, err := client.NewClient(url, cfg, 5*time.Second, nil)
+	require.NoError(t, err)
+
+	multiClient := *client.NewMultiClient(func(context.Context) (client.ReaderWriter, error) {
+		return solanaClient, nil
+	})
+
+	t.Run("returns no instructions when no ATA location is found", func(t *testing.T) {
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "Invalid.Address",
+				WalletAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: feePayer.String(),
+				}},
+				TokenProgram: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: solana.Token2022ProgramID.String(),
+				}},
+				MintAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Invalid.Address",
+				}},
+			},
+		}
+
+		args := chainwriter.TestArgs{
+			Inner: []chainwriter.InnerArgs{
+				{Address: chainwriter.GetRandomPubKey(t).Bytes()},
+			},
+		}
+
+		ataInstructions, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+		require.Empty(t, ataInstructions)
+	})
+
+	t.Run("fails with multiple wallet addresses", func(t *testing.T) {
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "",
+				WalletAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Addresses",
+				}},
+				TokenProgram: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: solana.Token2022ProgramID.String(),
+				}},
+				MintAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: chainwriter.GetRandomPubKey(t).String(),
+				}},
+			},
+		}
+
+		args := map[string][]solana.PublicKey{
+			"Addresses": {chainwriter.GetRandomPubKey(t), chainwriter.GetRandomPubKey(t)},
+		}
+
+		_, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.Contains(t, err.Error(), "expected exactly one wallet address, got 2")
+	})
+
+	t.Run("fails with mismatched mint and token programs", func(t *testing.T) {
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "",
+				WalletAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: feePayer.String(),
+				}},
+				TokenProgram: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: solana.Token2022ProgramID.String(),
+				}},
+				MintAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Addresses",
+				}},
+			},
+		}
+
+		args := map[string][]solana.PublicKey{
+			"Addresses": {chainwriter.GetRandomPubKey(t), chainwriter.GetRandomPubKey(t)},
+		}
+
+		_, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.Contains(t, err.Error(), "expected equal number of token programs and mints, got 1 tokenPrograms and 2 mints")
+	})
+
+	t.Run("fails when mint is not a token address", func(t *testing.T) {
+		tokenProgram := solana.Token2022ProgramID
+		mint := chainwriter.GetRandomPubKey(t)
+
+		ataAddress, _, err := tokens.FindAssociatedTokenAddress(tokenProgram, mint, feePayer)
+		require.NoError(t, err)
+		require.False(t, checkIfATAExists(t, rpcClient, ataAddress))
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "Inner.Address",
+				WalletAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: feePayer.String(),
+				}},
+				TokenProgram: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: tokenProgram.String(),
+				}},
+				MintAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Inner.Address",
+				}},
+			},
+		}
+
+		args := chainwriter.TestArgs{
+			Inner: []chainwriter.InnerArgs{
+				{Address: mint.Bytes()},
+			},
+		}
+
+		ataInstructions, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+
+		tx := solanautils.CreateTx(ctx, t, rpcClient, ataInstructions, sender, rpc.CommitmentFinalized)
+
+		_, err = rpcClient.SendTransactionWithOpts(ctx, tx, rpc.TransactionOpts{SkipPreflight: false, PreflightCommitment: rpc.CommitmentProcessed})
+		require.Contains(t, err.Error(), "Program log: Error: Invalid Mint")
+	})
+
+	t.Run("successfully creates ATAs only when necessary", func(t *testing.T) {
+		tokenProgram := solana.Token2022ProgramID
+		mint := utils.CreateRandomToken(t, sender, solana.Token2022ProgramID, rpcClient)
+
+		ataAddress, _, err := tokens.FindAssociatedTokenAddress(tokenProgram, mint, feePayer)
+		require.NoError(t, err)
+		require.False(t, checkIfATAExists(t, rpcClient, ataAddress))
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "Inner.Address",
+				WalletAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: feePayer.String(),
+				}},
+				TokenProgram: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: tokenProgram.String(),
+				}},
+				MintAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Inner.Address",
+				}},
+			},
+		}
+
+		args := chainwriter.TestArgs{
+			Inner: []chainwriter.InnerArgs{
+				{Address: mint.Bytes()},
+			},
+		}
+
+		ataInstructions, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+
+		solanautils.SendAndConfirm(ctx, t, rpcClient, ataInstructions, sender, rpc.CommitmentFinalized)
+		require.True(t, checkIfATAExists(t, rpcClient, ataAddress))
+
+		// now, if we try to create the same ATA again, it should return no instructions
+		ataInstructions, err = chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+		require.Empty(t, ataInstructions)
+	})
+
+	t.Run("successfully creates multiple ATAs when necessary", func(t *testing.T) {
+		tokenProgram := solana.Token2022ProgramID
+
+		const numMints = 3
+		var mints []solana.PublicKey
+		for i := 0; i < numMints; i++ {
+			mintPubKey := utils.CreateRandomToken(t, sender, tokenProgram, rpcClient)
+			mints = append(mints, mintPubKey)
+		}
+
+		var ataAddresses []solana.PublicKey
+		for _, mint := range mints {
+			ataAddress, _, err := tokens.FindAssociatedTokenAddress(tokenProgram, mint, feePayer)
+			require.NoError(t, err)
+			require.False(t, checkIfATAExists(t, rpcClient, ataAddress), "ATA should not exist yet")
+			ataAddresses = append(ataAddresses, ataAddress)
+		}
+
+		lookups := []chainwriter.ATALookup{
+			{
+				Location: "Inner.Address",
+				WalletAddress: chainwriter.Lookup{AccountConstant: &chainwriter.AccountConstant{
+					Address: feePayer.String(),
+				}},
+				TokenProgram: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Inner.SecondAddress",
+				}},
+				MintAddress: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{
+					Location: "Inner.Address",
+				}},
+			},
+		}
+
+		args := chainwriter.TestArgs{
+			Inner: []chainwriter.InnerArgs{},
+		}
+		for _, mint := range mints {
+			args.Inner = append(args.Inner, chainwriter.InnerArgs{
+				Address:       mint.Bytes(),
+				SecondAddress: tokenProgram.Bytes(),
+			})
+		}
+
+		ataInstructions, err := chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+		require.Len(t, ataInstructions, numMints)
+
+		solanautils.SendAndConfirm(ctx, t, rpcClient, ataInstructions, sender, rpc.CommitmentFinalized)
+
+		for _, ataAddress := range ataAddresses {
+			require.True(t, checkIfATAExists(t, rpcClient, ataAddress), "ATA should have been created")
+		}
+
+		ataInstructions, err = chainwriter.CreateATAs(ctx, args, lookups, nil, multiClient, testContractIDL, feePayer, logger.Test(t))
+		require.NoError(t, err)
+		require.Empty(t, ataInstructions, "No new instructions should be returned if ATAs already exist")
+	})
+}
+
+func checkIfATAExists(t *testing.T, rpcClient *rpc.Client, ataAddress solana.PublicKey) bool {
+	_, err := rpcClient.GetAccountInfo(tests.Context(t), ataAddress)
+	return err == nil
 }

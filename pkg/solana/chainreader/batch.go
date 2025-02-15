@@ -102,7 +102,7 @@ func doMethodBatchCall(ctx context.Context, lggr logger.Logger, client MultipleA
 					returnVal: c.ReturnVal,
 				}
 			}
-			lggr.Infof(sb.String())
+			lggr.Info(sb.String())
 			return results, nil
 		}
 		return nil, err

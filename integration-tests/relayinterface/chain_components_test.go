@@ -270,11 +270,6 @@ const (
 	ChainWriterLookupTableTest                                   = "Set contract value using a lookup table for addresses"
 )
 
-type TimestampedUnixBig struct {
-	Value     *big.Int `json:"value"`
-	Timestamp uint32   `json:"timestamp"`
-}
-
 func RunContractReaderInLoopTests[T WrappedTestingT[T]](t T, it ChainComponentsInterfaceTester[T]) {
 	//RunContractReaderInterfaceTests(t, it, false, true)
 	testCases := []Testcase[T]{

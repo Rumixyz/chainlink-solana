@@ -290,9 +290,14 @@ func (s *ContractReaderService) QueryKey(ctx context.Context, contract types.Bou
 		return nil, err
 	}
 
+	eBinding, ok := binding.(eventBinding)
+	if !ok {
+		return nil, fmt.Errorf("%w: invalid binding type for %s", types.ErrInvalidType, contract.Name)
+	}
+
 	_, isValuePtr := sequenceDataType.(*values.Value)
 	if !isValuePtr {
-		return binding.QueryKey(ctx, filter, limitAndSort, sequenceDataType)
+		return eBinding.QueryKey(ctx, filter, limitAndSort, sequenceDataType)
 	}
 
 	dataTypeFromReadIdentifier, err := s.CreateContractType(contract.ReadIdentifier(filter.Key), false)
@@ -300,7 +305,7 @@ func (s *ContractReaderService) QueryKey(ctx context.Context, contract types.Bou
 		return nil, err
 	}
 
-	sequence, err := binding.QueryKey(ctx, filter, limitAndSort, dataTypeFromReadIdentifier)
+	sequence, err := eBinding.QueryKey(ctx, filter, limitAndSort, dataTypeFromReadIdentifier)
 	if err != nil {
 		return nil, err
 	}

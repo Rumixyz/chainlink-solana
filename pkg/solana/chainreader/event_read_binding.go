@@ -208,12 +208,18 @@ func (b *eventReadBinding) GetLatestValue(ctx context.Context, params, returnVal
 		return err
 	}
 
-	limiter := query.NewLimitAndSort(query.CountLimit(1), query.NewSortBySequence(query.Desc))
-	filter, err := logpoller.Where(
+	allFilters := []query.Expression{
 		logpoller.NewAddressFilter(pubKey),
 		logpoller.NewEventSigFilter(b.eventSig[:]),
-		subkeyFilters,
-	)
+	}
+
+	if len(subkeyFilters) > 0 {
+		allFilters = append(allFilters, query.And(subkeyFilters...))
+	}
+
+	limiter := query.NewLimitAndSort(query.CountLimit(1), query.NewSortBySequence(query.Desc))
+
+	filter, err := logpoller.Where(allFilters...)
 	if err != nil {
 		return err
 	}
@@ -286,38 +292,41 @@ func (b *eventReadBinding) normalizeParams(value any, itemType string) (any, err
 	return offChain, nil
 }
 
-func (b *eventReadBinding) extractFilterSubkeys(offChainParams any) (query.Expression, error) {
+func (b *eventReadBinding) extractFilterSubkeys(offChainParams any) ([]query.Expression, error) {
 	var expressions []query.Expression
 
 	for offChainKey, idx := range b.indexedSubKeys.lookup {
 		itemType := codec.WrapItemType(true, b.namespace, b.genericName+"."+offChainKey)
 
-		onChainValue, err := b.modifier.TransformToOnChain(offChainParams, itemType)
+		fieldVal, err := valueForPath(reflect.ValueOf(offChainParams), offChainKey)
 		if err != nil {
-			return query.Expression{}, fmt.Errorf("%w: failed to apply on-chain transformation for key %s", types.ErrInternal, offChainKey)
+			return nil, fmt.Errorf("%w: no value for path %s", types.ErrInternal, b.genericName+"."+offChainKey)
 		}
 
+		onChainValue, err := b.modifier.TransformToOnChain(fieldVal, itemType)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to apply on-chain transformation for key %s", types.ErrInternal, offChainKey)
+		}
+
+		valOf := reflect.ValueOf(onChainValue)
+
 		// check that onChainValue is not zero value for type
-		if reflect.ValueOf(onChainValue).IsZero() {
+		if valOf.IsZero() {
 			continue
 		}
 
 		expression, err := logpoller.NewEventBySubKeyFilter(
 			idx,
-			[]primitives.ValueComparator{{Value: onChainValue, Operator: primitives.Eq}},
+			[]primitives.ValueComparator{{Value: reflect.Indirect(valOf).Interface(), Operator: primitives.Eq}},
 		)
 		if err != nil {
-			return query.Expression{}, err
+			return nil, err
 		}
 
 		expressions = append(expressions, expression)
 	}
 
-	if len(expressions) == 0 {
-		return query.Expression{}, fmt.Errorf("%w: no subkey filters found during query creation", types.ErrInternal)
-	}
-
-	return query.And(expressions...), nil
+	return expressions, nil
 }
 
 func (b *eventReadBinding) remapPrimitive(expression query.Expression) (query.Expression, error) {
@@ -503,4 +512,37 @@ func (k *indexedSubkeys) indexForKey(key string) (uint64, bool) {
 	idx, ok := k.lookup[key]
 
 	return idx, ok
+}
+
+func valueForPath(from reflect.Value, itemType string) (any, error) {
+	if itemType == "" {
+		return from.Interface(), nil
+	}
+
+	switch from.Kind() {
+	case reflect.Pointer:
+		elem, err := valueForPath(from.Elem(), itemType)
+		if err != nil {
+			return nil, err
+		}
+
+		return elem, nil
+	case reflect.Array, reflect.Slice:
+		return nil, fmt.Errorf("%w: cannot extract a field from an array or slice", types.ErrInvalidType)
+	case reflect.Struct:
+		head, tail := commoncodec.ItemTyper(itemType).Next()
+
+		field := from.FieldByName(head)
+		if !field.IsValid() {
+			return nil, fmt.Errorf("%w: field not found for path %s and itemType %s", types.ErrInvalidType, from, itemType)
+		}
+
+		if tail == "" {
+			return field.Interface(), nil
+		}
+
+		return valueForPath(field, tail)
+	default:
+		return nil, fmt.Errorf("%w: cannot extract a field from kind %s", types.ErrInvalidType, from.Kind())
+	}
 }

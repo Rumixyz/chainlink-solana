@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/chainconfig"
 	"math/big"
 	"testing"
 
@@ -729,6 +730,29 @@ func TestChainWriter_SubmitTransaction(t *testing.T) {
 		submitErr := cw.SubmitTransaction(ctx, "contract_reader_interface", "initializeLookupTable", args, txID, programID.String(), nil, nil)
 		require.NoError(t, submitErr)
 	})
+}
+
+// This adapter allows to collect all the accounts that must be accessed based on the content of the execute report
+func writeReportAdapter(input any, adapterSupport chainconfig.SolanaAdapterSupport, context chainconfig.WriteContext) (any, []types.SolanaAddress) {
+	executeReport := input.(cciptypes.ExecuteReport)
+	var accounts = []types.SolanaAddress{}
+	for _, report := range executeReport.ChainReports {
+		for _, message := range report.Messages {
+			for _, tokenAmmount := range message.TokenAmounts {
+				seeds := [][]byte{
+					[]byte("token"),
+					[]byte("tokenConfig"),
+				}
+				tokenDataAddress, _, _ := adapterSupport.GetPDAAddress(adapterSupport.ToSolanaAddress(string(tokenAmmount.DestTokenAddress)), seeds)
+				tokenData := adapterSupport.FetchAccountData(tokenDataAddress).([][]byte)
+				for _, accountAddress := range tokenData {
+					accounts = append(accounts, adapterSupport.ToSolanaAddress(string(accountAddress)))
+				}
+			}
+		}
+	}
+	//No need to modify the report but we need to provide the collected set of accounts that must be sent with the transaction.
+	return input, accounts
 }
 
 func TestChainWriter_CCIPOfframp(t *testing.T) {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/chainconfig"
+
 	"github.com/gagliardetto/solana-go"
 	addresslookuptable "github.com/gagliardetto/solana-go/programs/address-lookup-table"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -56,11 +58,14 @@ type MethodConfig struct {
 	FromAddress        string
 	InputModifications commoncodec.ModifiersConfig
 	ChainSpecificName  string
-	LookupTables       LookupTables
-	Accounts           []Lookup
 	// Location in the args where the debug ID is stored
 	DebugIDLocation string
-	ArgsTransform   string
+	// Adapter function that knows how to transform the input and get the accounts and LookupTables needed for creating a Solana TX.
+	WriteAdapter chainconfig.WriteAdapterFunc
+	// This fields below wouldn't be required if we use WriteAdapter.
+	LookupTables  LookupTables
+	Accounts      []Lookup
+	ArgsTransform string
 }
 
 func NewSolanaChainWriterService(logger logger.Logger, reader client.Reader, txm txm.TxManager, ge fees.Estimator, config ChainWriterConfig) (*SolanaChainWriterService, error) {
@@ -263,6 +268,13 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 		}
 	}
 
+	//methodConfig.WriteAdapter(args, solanaAdapterSupport, chainconfig.WriteContext{
+	//	Contract:  contractName,
+	//	Method:    method,
+	//	InputArgs: args,
+	//	ToAddress: toAddress,
+	//})
+
 	// Fetch derived and static table maps
 	derivedTableMap, staticTableMap, err := s.ResolveLookupTables(ctx, args, methodConfig.LookupTables)
 	if err != nil {
@@ -308,7 +320,6 @@ func (s *SolanaChainWriterService) SubmitTransaction(ctx context.Context, contra
 	}
 
 	encodedPayload, err := s.encoder.Encode(ctx, args, codec.WrapItemType(true, contractName, method))
-
 	if err != nil {
 		return errorWithDebugID(fmt.Errorf("error encoding transaction payload: %w", err), debugID)
 	}

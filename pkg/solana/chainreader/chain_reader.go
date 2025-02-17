@@ -13,6 +13,7 @@ import (
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings/fee_quoter"
 	commoncodec "github.com/smartcontractkit/chainlink-common/pkg/codec"
@@ -696,6 +697,11 @@ func (s *ContractReaderService) handleGetTokenPricesGetLatestValue(
 		return err
 	}
 
+	if len(pdaAddresses) == 0 {
+		s.lggr.Infof("No token addresses found in params: %v that were passed into %q, call to contract: %q with address: %q", params, GetTokenPrices, values.contract, values.address)
+		return nil
+	}
+
 	data, err := s.client.GetMultipleAccountData(ctx, pdaAddresses...)
 	if err != nil {
 		return err
@@ -705,7 +711,32 @@ func (s *ContractReaderService) handleGetTokenPricesGetLatestValue(
 	if returnSliceVal.Kind() != reflect.Ptr {
 		return fmt.Errorf("expected <**[]*struct { Value *big.Int; Timestamp *int64 } Value>, got %q", returnSliceVal.String())
 	}
+
 	returnSliceVal = returnSliceVal.Elem()
+	// if called directly instead of as a loop
+	if returnSliceVal.Kind() == reflect.Slice {
+		underlyingType := returnSliceVal.Type().Elem()
+		if underlyingType.Kind() == reflect.Struct {
+			if _, hasValue := underlyingType.FieldByName("Value"); hasValue {
+				if _, hasTimestamp := underlyingType.FieldByName("Timestamp"); hasTimestamp {
+					sliceVal := reflect.MakeSlice(returnSliceVal.Type(), 0, 0)
+					for _, d := range data {
+						var wrapper fee_quoter.BillingTokenConfigWrapper
+						if err = wrapper.UnmarshalWithDecoder(bin.NewBorshDecoder(d)); err != nil {
+							return err
+						}
+						newElem := reflect.New(underlyingType).Elem()
+						newElem.FieldByName("Value").Set(reflect.ValueOf(big.NewInt(0).SetBytes(wrapper.Config.UsdPerToken.Value[:])))
+						// nolint:gosec
+						// G115: integer overflow conversion int64 -&gt; uint32
+						newElem.FieldByName("Timestamp").Set(reflect.ValueOf(uint32(wrapper.Config.UsdPerToken.Timestamp)))
+						sliceVal = reflect.Append(sliceVal, newElem)
+					}
+					return mapstructure.Decode(sliceVal.Interface(), returnVal)
+				}
+			}
+		}
+	}
 
 	returnSliceValType := returnSliceVal.Type()
 	if returnSliceValType.Kind() != reflect.Ptr {
@@ -771,25 +802,46 @@ func (s *ContractReaderService) getPDAsForGetTokenPrices(params any, values read
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
-	if val.Kind() != reflect.Struct {
+
+	var field reflect.Value
+	switch val.Kind() {
+	case reflect.Struct:
+		field = val.FieldByName("Tokens")
+		if !field.IsValid() {
+			field = val.FieldByName("tokens")
+		}
+	case reflect.Map:
+		field = val.MapIndex(reflect.ValueOf("Tokens"))
+		if !field.IsValid() {
+			field = val.MapIndex(reflect.ValueOf("tokens"))
+		}
+	default:
 		return nil, fmt.Errorf(
-			"for contract %q read %q: expected `params` to be a struct, got %s",
-			values.contract, values.reads[0].readName, val.Kind(),
+			"for contract %q read %q: expected `params` to be a struct or map, got %q: %q",
+			values.contract, values.reads[0].readName, val.Kind(), val.String(),
 		)
 	}
 
-	field := val.FieldByName("Tokens")
 	if !field.IsValid() {
 		return nil, fmt.Errorf(
-			"for contract %q read %q: no field named 'Tokens' found in params",
-			values.contract, values.reads[0].readName,
+			"for contract %q read %q: no field named 'Tokens' found in kind: %q: %q",
+			values.contract, values.reads[0].readName, val.Kind(), val.String(),
 		)
 	}
 
-	tokens, ok := field.Interface().(*[][32]uint8)
-	if !ok {
+	var tokens [][]uint8
+	switch x := field.Interface().(type) {
+	// this is the type when CR is called as LOOP and creates types from IDL
+	case *[][32]uint8:
+		for _, arr := range *x {
+			tokens = append(tokens, arr[:]) // Slice [32]uint8 → []uint8
+		}
+		// this is the expected type when CR is called directly
+	case [][]uint8:
+		tokens = x
+	default:
 		return nil, fmt.Errorf(
-			"for contract %q read %q: 'Tokens' field is not of type *[][32]uint8",
+			"for contract %q read %q: 'Tokens' field is neither *[][32]uint8 nor [][]uint8",
 			values.contract, values.reads[0].readName,
 		)
 	}
@@ -804,7 +856,7 @@ func (s *ContractReaderService) getPDAsForGetTokenPrices(params any, values read
 
 	// Build the PDA addresses for all tokens.
 	var pdaAddresses []solana.PublicKey
-	for _, token := range *tokens {
+	for _, token := range tokens {
 		tokenAddr := solana.PublicKeyFromBytes(token[:])
 		if !tokenAddr.IsOnCurve() || tokenAddr.IsZero() {
 			return nil, fmt.Errorf(

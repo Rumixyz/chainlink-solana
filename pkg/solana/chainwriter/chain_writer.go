@@ -447,7 +447,7 @@ func (s *SolanaChainWriterService) GetFeeComponents(ctx context.Context) (*types
 	fee := s.ge.BaseComputeUnitPrice()
 	return &types.ChainFeeComponents{
 		ExecutionFee:        new(big.Int).SetUint64(fee),
-		DataAvailabilityFee: nil,
+		DataAvailabilityFee: big.NewInt(0), // required field so return 0 instead of nil
 	}, nil
 }
 

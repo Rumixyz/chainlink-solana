@@ -2,11 +2,13 @@ package relayinterface
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/smartcontractkit/chainlink-ccip/pkg/types/ccipocr3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/solana/utils/tokens"
@@ -310,9 +312,14 @@ func TestPDALookups(t *testing.T) {
 	})
 	t.Run("PDALookup resolves valid PDA with non-address lookup seeds", func(t *testing.T) {
 		seed1 := []byte("test_seed")
-		seed2 := []byte("another_seed")
+		seed2 := uint64(4)
+		bufSeed2 := make([]byte, 8)
+		binary.LittleEndian.PutUint64(bufSeed2, seed2)
+		seed3 := ccipocr3.ChainSelector(4)
+		bufSeed3 := make([]byte, 8)
+		binary.LittleEndian.PutUint64(bufSeed3, uint64(seed3))
 
-		pda, _, err := solana.FindProgramAddress([][]byte{seed1, seed2}, programID)
+		pda, _, err := solana.FindProgramAddress([][]byte{seed1, bufSeed2, bufSeed3}, programID)
 		require.NoError(t, err)
 
 		expectedMeta := []*solana.AccountMeta{
@@ -329,6 +336,7 @@ func TestPDALookups(t *testing.T) {
 			Seeds: []chainwriter.Seed{
 				{Dynamic: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{Name: "seed1", Location: "test_seed"}}},
 				{Dynamic: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{Name: "seed2", Location: "another_seed"}}},
+				{Dynamic: chainwriter.Lookup{AccountLookup: &chainwriter.AccountLookup{Name: "seed3", Location: "3rd_seed"}}},
 			},
 			IsSigner:   false,
 			IsWritable: true,
@@ -337,6 +345,7 @@ func TestPDALookups(t *testing.T) {
 		args := map[string]interface{}{
 			"test_seed":    seed1,
 			"another_seed": seed2,
+			"3rd_seed":     seed3,
 		}
 
 		result, err := pdaLookup.Resolve(ctx, args, nil, client.MultiClient{})

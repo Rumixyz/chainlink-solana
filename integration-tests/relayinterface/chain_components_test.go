@@ -876,8 +876,12 @@ func (it *SolanaChainComponentsInterfaceTester[T]) buildContractReaderConfig(t T
 		PDADefinition: codec.PDATypeDef{
 			Prefix: []byte("multi_read1"),
 		},
-		OutputModifications: commoncodec.ModifiersConfig{
-			&commoncodec.PropertyExtractorConfig{FieldName: "B"},
+		ResponseAddressHardCoder: &commoncodec.HardCodeModifierConfig{
+			// placeholder values, whatever is put as value gets replaced with a solana pub key anyway
+			OffChainValues: map[string]any{
+				"SharedAddress":  "",
+				"AddressToShare": "",
+			},
 		},
 	}
 

@@ -85,6 +85,8 @@ func GetValuesAtLocation(args any, location string) ([][]byte, error) {
 			buf := make([]byte, 8)
 			binary.LittleEndian.PutUint64(buf, uint64(value))
 			vals = append(vals, buf)
+		case ccipocr3.Bytes32:
+			vals = append(vals, value[:])
 		case [32]uint8:
 			vals = append(vals, value[:])
 		default:

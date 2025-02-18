@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
@@ -90,43 +89,28 @@ func doMethodBatchCall(ctx context.Context, lggr logger.Logger, client MultipleA
 	results := make([]batchResultWithErr, len(batch))
 	data, err := client.GetMultipleAccountData(ctx, keys...)
 	if err != nil {
-		if errors.Is(err, rpc.ErrNotFound) {
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("failed to get multiple account data with err: %s, now returning empty responses for: \n", err))
-			for i, c := range batch {
-				sb.WriteString(fmt.Sprintf("- call: #%d under namespace %s, with readName: %q and address: %q\n", i+1, c.Namespace, c.ReadName, keys[i]))
-				results[i] = batchResultWithErr{
-					address:   keys[i].String(),
-					namespace: c.Namespace,
-					readName:  c.ReadName,
-					returnVal: c.ReturnVal,
-				}
-			}
-			lggr.Info(sb.String())
-			return results, nil
-		}
 		return nil, err
 	}
 
 	// decode batch call results
 	for idx, batchCall := range batch {
+		address := keys[idx]
 		results[idx] = batchResultWithErr{
-			address:   keys[idx].String(),
+			address:   address.String(),
 			namespace: batchCall.Namespace,
 			readName:  batchCall.ReadName,
 			returnVal: batchCall.ReturnVal,
 		}
 
-		if data[idx] == nil || len(data[idx]) == 0 {
-			results[idx].err = ErrMissingAccountData
-
+		if len(data[idx]) == 0 {
+			lggr.Infow("failed to find account, returning zero value instead", "namespace", batchCall.Namespace, "readName", batchCall.ReadName, "address", address)
+			// TODO: add flag to enforce returning an error, e.g. ErrMissingAccountData
 			continue
 		}
 
 		rBinding, err := bdRegistry.GetReader(results[idx].namespace, results[idx].readName)
 		if err != nil {
 			results[idx].err = err
-
 			continue
 		}
 

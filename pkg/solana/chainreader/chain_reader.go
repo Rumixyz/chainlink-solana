@@ -722,8 +722,11 @@ func (s *ContractReaderService) handleGetTokenPricesGetLatestValue(
 					sliceVal := reflect.MakeSlice(returnSliceVal.Type(), 0, 0)
 					for _, d := range data {
 						var wrapper fee_quoter.BillingTokenConfigWrapper
-						if err = wrapper.UnmarshalWithDecoder(bin.NewBorshDecoder(d)); err != nil {
-							return err
+						// if we got back an empty account then the account must not exist yet, use zero value
+						if len(d) > 0 {
+							if err = wrapper.UnmarshalWithDecoder(bin.NewBorshDecoder(d)); err != nil {
+								return err
+							}
 						}
 						newElem := reflect.New(underlyingType).Elem()
 						newElem.FieldByName("Value").Set(reflect.ValueOf(big.NewInt(0).SetBytes(wrapper.Config.UsdPerToken.Value[:])))
@@ -772,8 +775,11 @@ func (s *ContractReaderService) handleGetTokenPricesGetLatestValue(
 
 	for _, d := range data {
 		var wrapper fee_quoter.BillingTokenConfigWrapper
-		if err = wrapper.UnmarshalWithDecoder(bin.NewBorshDecoder(d)); err != nil {
-			return err
+		// if we got back an empty account then the account must not exist yet, use zero value
+		if len(d) > 0 {
+			if err = wrapper.UnmarshalWithDecoder(bin.NewBorshDecoder(d)); err != nil {
+				return err
+			}
 		}
 
 		newElemPtr := reflect.New(underlyingStruct)
